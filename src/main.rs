@@ -4,7 +4,6 @@ mod install;
 mod output;
 mod paths;
 mod queries;
-mod rent;
 mod session;
 
 use std::io::Read;
@@ -16,7 +15,6 @@ use clap::Parser;
 use cli::AuthCommand;
 use cli::Cli;
 use cli::Command;
-use cli::RentCommand;
 use client::LoginResult;
 
 fn main() -> ExitCode {
@@ -62,9 +60,6 @@ fn entry() -> Result<()> {
                 client.graphql_full_or_data(&args.operation, &query, variables, args.full)?;
             output::print_json(&value)?;
         }
-        Command::Rent { command } => match command {
-            RentCommand::Appfolio(args) => rent::run_appfolio(args)?,
-        },
         Command::Doctor(args) => doctor(args)?,
         Command::Install(args) => {
             install::install(args).context("failed to install mon")?;
@@ -86,6 +81,32 @@ fn client_from_session(path: Option<std::path::PathBuf>) -> Result<client::Monar
 }
 
 fn auth_login(args: cli::LoginArgs) -> Result<()> {
+    if !args.no_save && !args.force {
+        let path = paths::session_file(args.session_file.clone())?;
+        if let Ok(stored) = session::load(&path) {
+            let client = client::MonarchClient::new(Some(stored.token))?;
+            match client.graphql(
+                "GetSubscriptionDetails",
+                queries::SUBSCRIPTION,
+                serde_json::json!({}),
+            ) {
+                Ok(_) => {
+                    println!("saved session still valid: {}", path.display());
+                    return Ok(());
+                }
+                Err(err) => {
+                    let message = err.to_string();
+                    if message.contains("rate limited") || message.contains("CAPTCHA") {
+                        return Err(err).context(
+                            "saved session check failed; refusing to fall through to password login",
+                        );
+                    }
+                    eprintln!("mon: saved session is not valid; continuing with password login");
+                }
+            }
+        }
+    }
+
     let email = match args.email {
         Some(email) => email,
         None => prompt("Email: ")?,

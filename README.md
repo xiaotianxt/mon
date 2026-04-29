@@ -2,7 +2,7 @@
 
 mon is an AI-native command line tool for Monarch Money. It gives local agents
 and scripts a small, stable interface for auth, structured GraphQL access,
-transaction search, and rent-payment reconciliation.
+account inspection, transaction search, and custom finance workflows.
 
 The implementation is based on Monarch's web API shape documented by the
 community Python project [`hammem/monarchmoney`](https://github.com/hammem/monarchmoney):
@@ -21,7 +21,6 @@ changes its web app API.
 - `mon auth token`: store an existing token without logging in.
 - `mon accounts`: list accounts, or print raw JSON.
 - `mon transactions`: search transactions by text/date with deterministic output.
-- `mon rent appfolio`: search AppFolio rent payments and export JSON/CSV snapshots.
 - `mon gql`: run a checked-in or ad-hoc GraphQL document.
 - `mon doctor`: verify local config and optional online connectivity.
 - `mon install`: copy the current binary into `~/.local/bin`.
@@ -61,6 +60,11 @@ Interactive login:
 mon auth login
 ```
 
+`mon auth login` reuses a valid saved session by default. This is intentional:
+Monarch rate-limits repeated password login attempts and may require CAPTCHA.
+Use `mon auth login --force` only when you intentionally want to replace the
+saved session.
+
 Non-interactive password flow:
 
 ```bash
@@ -91,19 +95,8 @@ mon accounts --json
 Search transactions:
 
 ```bash
-mon transactions --search appfolio --start-date 2026-01-01 --end-date 2026-04-30
-mon transactions --search rent --limit 200 --json
-```
-
-Export AppFolio rent-payment history for the rent-tracking folder:
-
-```bash
-mon rent appfolio \
-  --start-date 2026-01-01 \
-  --end-date 2026-04-30 \
-  --tracking-dir ~/Desktop/rent-tracking \
-  --write \
-  --json
+mon transactions --search coffee --start-date 2026-01-01 --end-date 2026-04-30
+mon transactions --search "payroll" --limit 200 --json
 ```
 
 Run an arbitrary GraphQL file:
@@ -127,7 +120,9 @@ mon is designed for agent use:
 - secrets are stored locally and never printed except with explicit
   `mon auth login --no-save`;
 - commands fail loudly with non-zero exits and contextual errors;
-- rent exports are timestamped JSON/CSV files that can be reused across sessions.
+- password login is session-aware to reduce rate-limit pressure;
+- HTTP 429 and CAPTCHA_REQUIRED responses are surfaced as first-class errors,
+  not retried blindly.
 
 ## Development
 
@@ -138,8 +133,7 @@ cargo test
 ```
 
 The project keeps dependencies small: `clap` for CLI parsing, blocking
-`reqwest` for HTTP, `serde_json` for raw GraphQL data, and `csv` for rent
-exports.
+`reqwest` for HTTP, and `serde_json` for raw GraphQL data.
 
 ## Release
 

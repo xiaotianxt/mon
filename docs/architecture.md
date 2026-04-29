@@ -10,9 +10,8 @@ agents and scripts.
 - `client`: blocking HTTP login and GraphQL calls.
 - `queries`: built-in GraphQL documents and variable builders.
 - `session`: local token storage in `~/.mon/session.json`.
-- `paths`: home, session, and rent-tracking path resolution.
+- `paths`: home and session path resolution.
 - `output`: compact human tables and JSON printing.
-- `rent`: AppFolio-oriented transaction export.
 - `install`: copy the running binary to a local bin directory.
 
 ## Monarch API Surface
@@ -54,17 +53,17 @@ Tokens are stored as JSON:
 The file defaults to `~/.mon/session.json`, can be overridden with
 `MON_SESSION_FILE`, and is chmodded to `0600` on Unix.
 
-## Rent Workflow
+## Rate Limits
 
-`mon rent appfolio` searches Monarch transactions with `search=appfolio`,
-normalizes a small row schema, and can write:
+Monarch rate-limits repeated password login attempts and may require CAPTCHA.
+`mon` is deliberately conservative:
 
-```text
-~/Desktop/rent-tracking/
-  monarch-appfolio-transactions-YYYY-MM-DD.json
-  monarch-appfolio-transactions-YYYY-MM-DD.csv
-```
+- saved sessions are reused by `mon auth login` unless `--force` is passed;
+- HTTP redirects are not followed automatically, so API host changes fail
+  clearly instead of mutating POST into GET;
+- HTTP 429 responses are surfaced as explicit rate-limit errors;
+- `CAPTCHA_REQUIRED` stops automated login attempts instead of retrying.
 
-This intentionally stays separate from settlement math. The rent folder should
-hold facts first: portal ledger exports, Monarch payment exports, and later the
-calculation state that reconciles those facts.
+Domain-specific workflows should live outside this repo and call the general
+JSON commands (`mon transactions --json`, `mon accounts --json`, or
+`mon gql --full`) as data sources.

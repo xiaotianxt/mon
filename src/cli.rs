@@ -25,11 +25,6 @@ pub enum Command {
     Transactions(TransactionArgs),
     /// Run an arbitrary GraphQL document against Monarch.
     Gql(GqlArgs),
-    /// Rent-focused workflows built on Monarch transactions.
-    Rent {
-        #[command(subcommand)]
-        command: RentCommand,
-    },
     /// Validate local config and optional API connectivity.
     Doctor(DoctorArgs),
     /// Install mon into ~/.local/bin.
@@ -46,19 +41,6 @@ pub enum AuthCommand {
     Status(StatusArgs),
     /// Remove the saved session token.
     Logout(LogoutArgs),
-}
-
-#[derive(Debug, Subcommand)]
-pub enum RentCommand {
-    /// Search AppFolio-like rent payments and optionally export them.
-    Appfolio(RentAppfolioArgs),
-}
-
-#[derive(Debug, Clone, Args)]
-pub struct SessionArg {
-    /// Session file. Defaults to $MON_SESSION_FILE or ~/.mon/session.json.
-    #[arg(long)]
-    pub session_file: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -85,6 +67,10 @@ pub struct LoginArgs {
     /// MFA code to send during login. Prompted when Monarch requires MFA.
     #[arg(long)]
     pub mfa_code: Option<String>,
+
+    /// Re-authenticate even when the saved session is still valid.
+    #[arg(long)]
+    pub force: bool,
 
     /// Print the token instead of saving it.
     #[arg(long)]
@@ -180,41 +166,6 @@ pub struct GqlArgs {
     /// Print the full GraphQL response instead of just data.
     #[arg(long)]
     pub full: bool,
-
-    /// Session file. Defaults to $MON_SESSION_FILE or ~/.mon/session.json.
-    #[arg(long)]
-    pub session_file: Option<PathBuf>,
-}
-
-#[derive(Debug, Clone, Args)]
-pub struct RentAppfolioArgs {
-    /// Search text used in Monarch transactions.
-    #[arg(long, default_value = "appfolio")]
-    pub search: String,
-
-    /// Earliest transaction date, YYYY-MM-DD. Must be paired with --end-date.
-    #[arg(long)]
-    pub start_date: Option<String>,
-
-    /// Latest transaction date, YYYY-MM-DD. Must be paired with --start-date.
-    #[arg(long)]
-    pub end_date: Option<String>,
-
-    /// Maximum rows returned by Monarch.
-    #[arg(long, default_value_t = 100)]
-    pub limit: u32,
-
-    /// Rent tracking directory. Defaults to ~/Desktop/rent-tracking.
-    #[arg(long)]
-    pub tracking_dir: Option<PathBuf>,
-
-    /// Write JSON and CSV exports into the tracking directory.
-    #[arg(long)]
-    pub write: bool,
-
-    /// Print JSON instead of a compact table.
-    #[arg(long)]
-    pub json: bool,
 
     /// Session file. Defaults to $MON_SESSION_FILE or ~/.mon/session.json.
     #[arg(long)]
