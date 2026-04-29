@@ -1,0 +1,27 @@
+[package]
+name = "mon"
+version = "0.1.0"
+edition = "2021"
+description = "AI-native Monarch Money CLI for structured local finance workflows"
+authors = ["yupeit"]
+repository = "https://github.com/xiaotianxt/mon"
+license = "MIT"
+keywords = ["monarch", "finance", "cli", "graphql", "money"]
+categories = ["command-line-utilities", "finance"]
+
+[[bin]]
+name = "mon"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+clap = { version = "4", features = ["derive"] }
+csv = "1"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+rpassword = "7"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+tempfile = "3"
