@@ -101,6 +101,9 @@ fn auth_login(args: cli::LoginArgs) -> Result<()> {
         LoginResult::Token(token) => token,
         LoginResult::MfaRequired => {
             let code = prompt("MFA code: ")?;
+            if code.trim().is_empty() {
+                anyhow::bail!("MFA code is required");
+            }
             match client.login(&email, &password, Some(code.trim()))? {
                 LoginResult::Token(token) => token,
                 LoginResult::MfaRequired => anyhow::bail!("MFA is still required"),
@@ -229,7 +232,21 @@ fn doctor(args: cli::DoctorArgs) -> Result<()> {
 }
 
 fn prompt(label: &str) -> Result<String> {
+    use std::fs::OpenOptions;
+    use std::io::BufRead;
+    use std::io::BufReader;
     use std::io::Write;
+
+    if let Ok(mut tty) = OpenOptions::new().read(true).write(true).open("/dev/tty") {
+        write!(tty, "{label}").context("failed to write prompt")?;
+        tty.flush().context("failed to flush prompt")?;
+
+        let mut value = String::new();
+        BufReader::new(tty)
+            .read_line(&mut value)
+            .context("failed to read /dev/tty")?;
+        return Ok(value.trim().to_owned());
+    }
 
     print!("{label}");
     std::io::stdout()

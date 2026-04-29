@@ -9,11 +9,12 @@ use reqwest::header::ACCEPT;
 use reqwest::header::AUTHORIZATION;
 use reqwest::header::CONTENT_TYPE;
 use reqwest::header::USER_AGENT;
+use reqwest::redirect::Policy;
 use serde::Deserialize;
 use serde::Serialize;
 use serde_json::Value;
 
-const BASE_URL: &str = "https://api.monarchmoney.com";
+const BASE_URL: &str = "https://api.monarch.com";
 const LOGIN_PATH: &str = "/auth/login/";
 const GRAPHQL_PATH: &str = "/graphql";
 const USER_AGENT_VALUE: &str = "mon/0.1.0 (https://github.com/xiaotianxt/mon)";
@@ -49,6 +50,7 @@ impl MonarchClient {
     pub fn new(token: Option<String>) -> Result<Self> {
         let http = Client::builder()
             .timeout(Duration::from_secs(30))
+            .redirect(Policy::none())
             .default_headers(base_headers(token.as_deref())?)
             .build()
             .context("failed to build HTTP client")?;
@@ -82,6 +84,18 @@ impl MonarchClient {
 
         if response.status().as_u16() == 403 {
             return Ok(LoginResult::MfaRequired);
+        }
+
+        if response.status().is_redirection() {
+            let location = response
+                .headers()
+                .get(reqwest::header::LOCATION)
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or("<missing Location header>")
+                .to_owned();
+            anyhow::bail!(
+                "login endpoint redirected to {location}; update MonarchClient::BASE_URL"
+            );
         }
 
         if !response.status().is_success() {
@@ -123,6 +137,18 @@ impl MonarchClient {
             .with_context(|| format!("GraphQL request failed for {operation}"))?;
 
         let status = response.status();
+        if status.is_redirection() {
+            let location = response
+                .headers()
+                .get(reqwest::header::LOCATION)
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or("<missing Location header>")
+                .to_owned();
+            anyhow::bail!(
+                "GraphQL {operation} redirected to {location}; update MonarchClient::BASE_URL"
+            );
+        }
+
         let value: Value = response
             .json()
             .with_context(|| format!("failed to parse GraphQL response for {operation}"))?;

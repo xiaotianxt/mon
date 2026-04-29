@@ -21,8 +21,8 @@ The client uses the API conventions observed in the community
 `hammem/monarchmoney` package:
 
 ```text
-POST https://api.monarchmoney.com/auth/login/
-POST https://api.monarchmoney.com/graphql
+POST https://api.monarch.com/auth/login/
+POST https://api.monarch.com/graphql
 Authorization: Token <token>
 Client-Platform: web
 ```

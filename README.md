@@ -7,8 +7,8 @@ transaction search, and rent-payment reconciliation.
 The implementation is based on Monarch's web API shape documented by the
 community Python project [`hammem/monarchmoney`](https://github.com/hammem/monarchmoney):
 
-- login: `POST https://api.monarchmoney.com/auth/login/`
-- GraphQL: `POST https://api.monarchmoney.com/graphql`
+- login: `POST https://api.monarch.com/auth/login/`
+- GraphQL: `POST https://api.monarch.com/graphql`
 - auth header: `Authorization: Token <token>`
 
 Monarch does not publish this as an official public API. Treat this tool as a
@@ -66,6 +66,9 @@ Non-interactive password flow:
 ```bash
 printf '%s' "$MONARCH_PASSWORD" | mon auth login --email you@example.com --password-stdin
 ```
+
+If Monarch requires MFA, `mon` prompts for the MFA code from `/dev/tty`, so the
+password can still come from stdin.
 
 Store an existing token without putting it in shell history:
 
