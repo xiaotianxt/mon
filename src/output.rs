@@ -13,8 +13,8 @@ pub fn print_accounts(data: &Value, json: bool) -> Result<()> {
 
     let accounts = data["accounts"].as_array().cloned().unwrap_or_default();
     println!(
-        "{:<28} {:>14} {:<18} {}",
-        "name", "balance", "type", "institution"
+        "{:<28} {:>14} {:<18} institution",
+        "name", "balance", "type"
     );
     for account in accounts {
         let name = str_at(&account, &["displayName"]);
@@ -47,8 +47,8 @@ pub fn print_transactions(data: &Value, json: bool) -> Result<()> {
     let total = data["allTransactions"]["totalCount"].as_i64().unwrap_or(0);
     println!("total: {total}");
     println!(
-        "{:<12} {:>12} {:<28} {:<22} {}",
-        "date", "amount", "merchant", "account", "category"
+        "{:<12} {:>12} {:<28} {:<22} category",
+        "date", "amount", "merchant", "account"
     );
     for tx in results {
         let date = str_at(&tx, &["date"]);

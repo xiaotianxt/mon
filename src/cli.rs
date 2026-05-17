@@ -49,6 +49,9 @@ pub struct JsonSessionArgs {
     #[arg(long)]
     pub json: bool,
 
+    #[command(flatten)]
+    pub browser: BrowserArgs,
+
     /// Session file. Defaults to $MON_SESSION_FILE or ~/.mon/session.json.
     #[arg(long)]
     pub session_file: Option<PathBuf>,
@@ -106,6 +109,9 @@ pub struct StatusArgs {
     #[arg(long)]
     pub json: bool,
 
+    #[command(flatten)]
+    pub browser: BrowserArgs,
+
     /// Session file. Defaults to $MON_SESSION_FILE or ~/.mon/session.json.
     #[arg(long)]
     pub session_file: Option<PathBuf>,
@@ -144,6 +150,9 @@ pub struct TransactionArgs {
     #[arg(long)]
     pub json: bool,
 
+    #[command(flatten)]
+    pub browser: BrowserArgs,
+
     /// Session file. Defaults to $MON_SESSION_FILE or ~/.mon/session.json.
     #[arg(long)]
     pub session_file: Option<PathBuf>,
@@ -167,6 +176,9 @@ pub struct GqlArgs {
     #[arg(long)]
     pub full: bool,
 
+    #[command(flatten)]
+    pub browser: BrowserArgs,
+
     /// Session file. Defaults to $MON_SESSION_FILE or ~/.mon/session.json.
     #[arg(long)]
     pub session_file: Option<PathBuf>,
@@ -182,6 +194,9 @@ pub struct DoctorArgs {
     #[arg(long)]
     pub json: bool,
 
+    #[command(flatten)]
+    pub browser: BrowserArgs,
+
     /// Session file. Defaults to $MON_SESSION_FILE or ~/.mon/session.json.
     #[arg(long)]
     pub session_file: Option<PathBuf>,
@@ -196,4 +211,37 @@ pub struct InstallArgs {
     /// Replace an existing mon binary.
     #[arg(long)]
     pub force: bool,
+}
+
+#[derive(Debug, Clone, Default, Args)]
+pub struct BrowserArgs {
+    /// Use a logged-in Monarch web app tab through OpenBrowserMCP instead of the saved token.
+    #[arg(long)]
+    pub browser: bool,
+
+    /// Explicit browser tab id to use with --browser.
+    #[arg(long, value_name = "TAB_ID")]
+    pub browser_tab_id: Option<u64>,
+
+    /// Explicit OpenBrowserMCP browser id to use with --browser.
+    #[arg(long, value_name = "BROWSER_ID")]
+    pub browser_id: Option<String>,
+
+    /// OpenBrowserMCP MCP endpoint. Defaults to OPENBROWSERMCP_MCP_URL or http://127.0.0.1:3500/mcp.
+    #[arg(long, value_name = "URL")]
+    pub openbrowser_mcp_url: Option<String>,
+
+    /// OpenBrowserMCP settings file. Defaults to OPENBROWSERMCP_SETTINGS or ~/openbrowsermcp/settings.json.
+    #[arg(long, value_name = "PATH")]
+    pub openbrowser_settings: Option<PathBuf>,
+}
+
+impl BrowserArgs {
+    pub fn enabled(&self) -> bool {
+        self.browser
+            || self.browser_tab_id.is_some()
+            || self.browser_id.is_some()
+            || self.openbrowser_mcp_url.is_some()
+            || self.openbrowser_settings.is_some()
+    }
 }

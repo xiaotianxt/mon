@@ -1,3 +1,4 @@
+mod browser;
 mod cli;
 mod client;
 mod install;
@@ -13,6 +14,7 @@ use anyhow::Context;
 use anyhow::Result;
 use clap::Parser;
 use cli::AuthCommand;
+use cli::BrowserArgs;
 use cli::Cli;
 use cli::Command;
 use client::LoginResult;
@@ -38,26 +40,43 @@ fn entry() -> Result<()> {
             AuthCommand::Logout(args) => auth_logout(args)?,
         },
         Command::Accounts(args) => {
-            let client = client_from_session(args.session_file)?;
-            let data = client.graphql("GetAccounts", queries::ACCOUNTS, serde_json::json!({}))?;
+            let data = graphql_from_auth(
+                &args.browser,
+                args.session_file,
+                "GetAccounts",
+                queries::ACCOUNTS,
+                serde_json::json!({}),
+                false,
+            )?;
             output::print_accounts(&data, args.json)?;
         }
         Command::Transactions(args) => {
-            let client = client_from_session(args.session_file.clone())?;
             let variables = queries::transaction_variables(&args)?;
-            let data = client.graphql("GetTransactionsList", queries::TRANSACTIONS, variables)?;
+            let data = graphql_from_auth(
+                &args.browser,
+                args.session_file.clone(),
+                "GetTransactionsList",
+                queries::TRANSACTIONS,
+                variables,
+                false,
+            )?;
             output::print_transactions(&data, args.json)?;
         }
         Command::Gql(args) => {
-            let client = client_from_session(args.session_file)?;
             let query = std::fs::read_to_string(&args.query_file)
                 .with_context(|| format!("failed to read {}", args.query_file.display()))?;
             let variables = match args.variables {
                 Some(raw) => serde_json::from_str(&raw).context("--variables must be JSON")?,
                 None => serde_json::json!({}),
             };
-            let value =
-                client.graphql_full_or_data(&args.operation, &query, variables, args.full)?;
+            let value = graphql_from_auth(
+                &args.browser,
+                args.session_file,
+                &args.operation,
+                &query,
+                variables,
+                args.full,
+            )?;
             output::print_json(&value)?;
         }
         Command::Doctor(args) => doctor(args)?,
@@ -73,11 +92,41 @@ fn client_from_session(path: Option<std::path::PathBuf>) -> Result<client::Monar
     let path = paths::session_file(path)?;
     let stored = session::load(&path).with_context(|| {
         format!(
-            "no usable session at {}; run `mon auth login`",
+            "no usable session at {}; run `mon auth login`, or use `--browser` when Monarch is already open in Helium",
             path.display()
         )
     })?;
-    Ok(client::MonarchClient::new(Some(stored.token))?)
+    client::MonarchClient::new(Some(stored.token))
+}
+
+fn browser_options(args: &BrowserArgs) -> browser::BrowserOptions {
+    browser::BrowserOptions {
+        tab_id: args.browser_tab_id,
+        browser_id: args.browser_id.clone(),
+        mcp_url: args.openbrowser_mcp_url.clone(),
+        settings_file: args.openbrowser_settings.clone(),
+    }
+}
+
+fn browser_client_from_args(args: &BrowserArgs) -> Result<browser::BrowserMonarchClient> {
+    browser::BrowserMonarchClient::connect(browser_options(args))
+}
+
+fn graphql_from_auth(
+    browser_args: &BrowserArgs,
+    session_file: Option<std::path::PathBuf>,
+    operation: &str,
+    query: &str,
+    variables: serde_json::Value,
+    full: bool,
+) -> Result<serde_json::Value> {
+    if browser_args.enabled() {
+        let client = browser_client_from_args(browser_args)?;
+        return client.graphql_full_or_data(operation, query, variables, full);
+    }
+
+    let client = client_from_session(session_file)?;
+    client.graphql_full_or_data(operation, query, variables, full)
 }
 
 fn auth_login(args: cli::LoginArgs) -> Result<()> {
@@ -172,7 +221,20 @@ fn auth_status(args: cli::StatusArgs) -> Result<()> {
         "hasToken": has_token,
     });
 
-    if args.online {
+    if args.browser.enabled() {
+        let client = browser_client_from_args(&args.browser)?;
+        let data = client.graphql(
+            "GetSubscriptionDetails",
+            queries::SUBSCRIPTION,
+            serde_json::json!({}),
+        )?;
+        status["browser"] = serde_json::json!({
+            "online": true,
+            "tabId": client.tab_id(),
+            "browserId": client.browser_id(),
+            "subscription": data["subscription"].clone(),
+        });
+    } else if args.online {
         let stored = loaded
             .clone()
             .context("no saved session; run `mon auth login`")?;
@@ -193,6 +255,9 @@ fn auth_status(args: cli::StatusArgs) -> Result<()> {
         println!("token: {}", if has_token { "present" } else { "missing" });
         if args.online {
             println!("online: ok");
+        }
+        if args.browser.enabled() {
+            println!("browser: ok (tab {})", status["browser"]["tabId"]);
         }
     }
     Ok(())
@@ -218,7 +283,20 @@ fn doctor(args: cli::DoctorArgs) -> Result<()> {
         "monarchApi": client::MonarchClient::base_url(),
     });
 
-    if args.online {
+    if args.browser.enabled() {
+        let client = browser_client_from_args(&args.browser)?;
+        let data = client.graphql(
+            "GetSubscriptionDetails",
+            queries::SUBSCRIPTION,
+            serde_json::json!({}),
+        )?;
+        report["browser"] = serde_json::json!({
+            "online": true,
+            "tabId": client.tab_id(),
+            "browserId": client.browser_id(),
+            "subscription": data["subscription"].clone(),
+        });
+    } else if args.online {
         let stored =
             session::load(&session_file).context("no saved session; run `mon auth login`")?;
         let client = client::MonarchClient::new(Some(stored.token))?;
@@ -247,6 +325,9 @@ fn doctor(args: cli::DoctorArgs) -> Result<()> {
         println!("api: {}", client::MonarchClient::base_url());
         if args.online {
             println!("online: ok");
+        }
+        if args.browser.enabled() {
+            println!("browser: ok (tab {})", report["browser"]["tabId"]);
         }
     }
     Ok(())
