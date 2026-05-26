@@ -29,6 +29,20 @@ changes its web app API.
 
 ## Install
 
+### Agent Skill
+
+Install the optional Codex/agent skill for `mon` workflows:
+
+```bash
+npx -y github:xiaotianxt/skills mon
+```
+
+After the npm package is published:
+
+```bash
+npx -y @xiaotianxt/skills mon
+```
+
 ### Homebrew
 
 ```bash
