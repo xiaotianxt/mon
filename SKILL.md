@@ -1,6 +1,6 @@
 ---
 name: mon
-description: "Use when Codex needs to access Monarch Money through the local mon CLI: authenticate, inspect accounts, search transactions, run GraphQL operations, or use a logged-in browser session through bro while keeping tokens and cookies private."
+description: "Use when Codex needs to access Monarch Money through the local mon CLI: authenticate, inspect accounts, search transactions, update one exact transaction category, run GraphQL operations, or use a logged-in browser session through bro while keeping tokens and cookies private."
 ---
 
 # mon
@@ -14,8 +14,12 @@ Use this skill when you need to access Monarch Money from the local `mon` CLI.
 - `mon auth status --browser --json`: verify the logged-in Monarch browser session through bro.
 - `mon accounts --json`: fetch linked accounts.
 - `mon accounts --browser --json`: fetch accounts through an already logged-in Monarch browser tab.
+- `mon categories --json`: list category ids, names, disabled state, and group metadata.
+- `mon categories --browser --json`: list categories through the browser session.
 - `mon transactions --search TEXT --start-date YYYY-MM-DD --end-date YYYY-MM-DD --json`: search transactions.
 - `mon transactions --browser --start-date YYYY-MM-DD --end-date YYYY-MM-DD --json`: search transactions through the browser session.
+- `mon transaction update TRANSACTION_ID --category NAME --dry-run --json`: preview one exact category update.
+- `mon transaction update TRANSACTION_ID --category-id ID --json`: apply one exact category update.
 - `mon gql --operation NAME --query-file FILE --variables '{}'`: run a custom GraphQL document.
 - `mon gql --browser --operation NAME --query-file FILE --variables '{}'`: run GraphQL inside the Monarch web app tab.
 - `mon doctor`: inspect local paths and auth state.
@@ -43,3 +47,10 @@ session and `mon auth status --online`. When using `--browser`, do not print the
 bro bearer token, browser cookies, localStorage values, or raw
 transaction details unless the user explicitly asks for them; aggregate first
 for spending summaries.
+
+Treat `mon transaction update` as an explicit write. Prefer `--dry-run` first
+and do not apply a change unless the user authorized the exact transaction and
+target category. The command intentionally accepts one transaction id only; do
+not build fuzzy, search-driven, rule-based, rent-specific, or implicit batch
+updates around it. It never retries a mutation. `failed` and `outcome-unknown`
+exit non-zero and must not be reported as success.

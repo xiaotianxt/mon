@@ -21,8 +21,15 @@ pub enum Command {
     },
     /// List Monarch accounts.
     Accounts(JsonSessionArgs),
+    /// List Monarch transaction categories.
+    Categories(JsonSessionArgs),
     /// Search Monarch transactions.
     Transactions(TransactionArgs),
+    /// Mutate one exact Monarch transaction.
+    Transaction {
+        #[command(subcommand)]
+        command: TransactionCommand,
+    },
     /// Run an arbitrary GraphQL document against Monarch.
     Gql(GqlArgs),
     /// Validate local config and optional API connectivity.
@@ -41,6 +48,12 @@ pub enum AuthCommand {
     Status(StatusArgs),
     /// Remove the saved session token.
     Logout(LogoutArgs),
+}
+
+#[derive(Debug, Subcommand)]
+pub enum TransactionCommand {
+    /// Update the category of one exact transaction.
+    Update(TransactionUpdateArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -147,6 +160,46 @@ pub struct TransactionArgs {
     pub offset: u32,
 
     /// Print raw JSON instead of a compact table.
+    #[arg(long)]
+    pub json: bool,
+
+    #[command(flatten)]
+    pub browser: BrowserArgs,
+
+    /// Session file. Defaults to $MON_SESSION_FILE or ~/.mon/session.json.
+    #[arg(long)]
+    pub session_file: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct TransactionUpdateArgs {
+    /// Exact transaction id to update.
+    #[arg(value_name = "TRANSACTION_ID")]
+    pub transaction_id: String,
+
+    /// Exact category name after trimming, matched case-insensitively.
+    #[arg(
+        long,
+        value_name = "NAME",
+        required_unless_present = "category_id",
+        conflicts_with = "category_id"
+    )]
+    pub category: Option<String>,
+
+    /// Exact category id.
+    #[arg(
+        long,
+        value_name = "ID",
+        required_unless_present = "category",
+        conflicts_with = "category"
+    )]
+    pub category_id: Option<String>,
+
+    /// Resolve and inspect the transaction without mutating it.
+    #[arg(long)]
+    pub dry_run: bool,
+
+    /// Print structured JSON.
     #[arg(long)]
     pub json: bool,
 
@@ -281,5 +334,95 @@ mod tests {
             args.browser.bro_settings.as_deref(),
             Some(std::path::Path::new("/tmp/settings.json"))
         );
+    }
+
+    #[test]
+    fn preserves_transactions_search_cli() {
+        let cli = Cli::try_parse_from([
+            "mon",
+            "transactions",
+            "--search",
+            "coffee",
+            "--start-date",
+            "2026-01-01",
+            "--end-date",
+            "2026-01-31",
+            "--json",
+        ])
+        .unwrap();
+
+        let Command::Transactions(args) = cli.command else {
+            panic!("expected transactions command");
+        };
+        assert_eq!(args.search, "coffee");
+        assert_eq!(args.start_date.as_deref(), Some("2026-01-01"));
+        assert_eq!(args.end_date.as_deref(), Some("2026-01-31"));
+        assert!(args.json);
+        assert_eq!(args.limit, 100);
+        assert_eq!(args.offset, 0);
+    }
+
+    #[test]
+    fn parses_categories_with_browser_auth() {
+        let cli = Cli::try_parse_from(["mon", "categories", "--browser", "--json"]).unwrap();
+
+        let Command::Categories(args) = cli.command else {
+            panic!("expected categories command");
+        };
+        assert!(args.browser.enabled());
+        assert!(args.json);
+    }
+
+    #[test]
+    fn parses_single_transaction_update() {
+        let cli = Cli::try_parse_from([
+            "mon",
+            "transaction",
+            "update",
+            "tx-1",
+            "--category",
+            "Groceries",
+            "--dry-run",
+            "--json",
+            "--browser-tab-id",
+            "42",
+            "--session-file",
+            "/tmp/session.json",
+        ])
+        .unwrap();
+
+        let Command::Transaction {
+            command: TransactionCommand::Update(args),
+        } = cli.command
+        else {
+            panic!("expected transaction update command");
+        };
+
+        assert_eq!(args.transaction_id, "tx-1");
+        assert_eq!(args.category.as_deref(), Some("Groceries"));
+        assert!(args.category_id.is_none());
+        assert!(args.dry_run);
+        assert!(args.json);
+        assert_eq!(args.browser.browser_tab_id, Some(42));
+        assert_eq!(
+            args.session_file.as_deref(),
+            Some(std::path::Path::new("/tmp/session.json"))
+        );
+    }
+
+    #[test]
+    fn transaction_update_requires_exactly_one_category_selector() {
+        assert!(Cli::try_parse_from(["mon", "transaction", "update", "tx-1"]).is_err());
+        assert!(Cli::try_parse_from([
+            "mon",
+            "transaction",
+            "update",
+            "tx-1",
+            "--category",
+            "Food",
+            "--category-id",
+            "cat-1",
+        ])
+        .is_err());
     }
 }

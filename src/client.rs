@@ -157,6 +157,18 @@ impl MonarchClient {
         let text = response
             .text()
             .with_context(|| format!("failed to read GraphQL response for {operation}"))?;
+        let parsed = serde_json::from_str::<Value>(&text);
+
+        // GraphQL document validation may return either HTTP 200 or HTTP 400.
+        // Preserve structured errors before reducing the response to an HTTP error.
+        if let Ok(value) = &parsed {
+            if let Some(error) =
+                crate::graphql::response_error(operation, Some(status.as_u16()), value)?
+            {
+                return Err(error.into());
+            }
+        }
+
         if !status.is_success() {
             anyhow::bail!(
                 "{}",
@@ -169,12 +181,8 @@ impl MonarchClient {
             );
         }
 
-        let value: Value = serde_json::from_str(&text)
-            .with_context(|| format!("failed to parse GraphQL response for {operation}"))?;
-
-        if value.get("errors").is_some() {
-            anyhow::bail!("GraphQL {operation} returned errors: {}", value["errors"]);
-        }
+        let value =
+            parsed.with_context(|| format!("failed to parse GraphQL response for {operation}"))?;
 
         if full {
             Ok(value)

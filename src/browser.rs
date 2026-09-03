@@ -178,8 +178,19 @@ impl BrowserMonarchClient {
             anyhow::bail!("browser GraphQL {operation} ended in unexpected state: {value}");
         }
 
+        let status = value["status"]
+            .as_u64()
+            .and_then(|status| u16::try_from(status).ok());
+        let body = value.get("body").cloned();
+
+        if let Some(body) = body.as_ref() {
+            if let Some(error) = crate::graphql::response_error(operation, status, body)? {
+                return Err(error.into());
+            }
+        }
+
         if !value["ok"].as_bool().unwrap_or(false) {
-            let status = value["status"].as_u64().unwrap_or(0);
+            let status = status.unwrap_or(0);
             let status_text = value["statusText"].as_str().unwrap_or("");
             let detail = value["body"]["detail"]
                 .as_str()
@@ -190,17 +201,7 @@ impl BrowserMonarchClient {
             );
         }
 
-        let body = value
-            .get("body")
-            .cloned()
-            .context("browser GraphQL response did not contain a JSON body")?;
-
-        if body.get("errors").is_some() {
-            anyhow::bail!(
-                "browser GraphQL {operation} returned errors: {}",
-                body["errors"]
-            );
-        }
+        let body = body.context("browser GraphQL response did not contain a JSON body")?;
 
         if full {
             Ok(body)

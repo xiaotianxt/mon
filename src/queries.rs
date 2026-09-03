@@ -62,6 +62,55 @@ query GetAccounts {
 }
 "#;
 
+pub const CATEGORIES: &str = r#"
+query GetCategories {
+  categories {
+    id
+    name
+    isDisabled
+    group {
+      id
+      name
+      type
+    }
+  }
+}
+"#;
+
+pub const GET_TRANSACTION_FOR_UPDATE: &str = r#"
+query GetTransactionForUpdate($id: UUID!) {
+  getTransaction(id: $id, redirectPosted: false) {
+    id
+    category {
+      id
+      name
+    }
+  }
+}
+"#;
+
+pub const UPDATE_TRANSACTION: &str = r#"
+mutation Web_TransactionDrawerUpdateTransaction($input: UpdateTransactionMutationInput!) {
+  updateTransaction(input: $input) {
+    transaction {
+      id
+      category {
+        id
+        name
+      }
+    }
+    errors {
+      message
+      code
+      fieldErrors {
+        field
+        messages
+      }
+    }
+  }
+}
+"#;
+
 pub const TRANSACTIONS: &str = r#"
 query GetTransactionsList($offset: Int, $limit: Int, $filters: TransactionFilterInput, $orderBy: TransactionOrdering) {
   allTransactions(filters: $filters) {
@@ -114,6 +163,19 @@ query GetTransactionsList($offset: Int, $limit: Int, $filters: TransactionFilter
 }
 "#;
 
+pub fn transaction_for_update_variables(id: &str) -> Value {
+    serde_json::json!({ "id": id })
+}
+
+pub fn update_transaction_variables(transaction_id: &str, category_id: &str) -> Value {
+    serde_json::json!({
+        "input": {
+            "id": transaction_id,
+            "category": category_id,
+        }
+    })
+}
+
 pub fn transaction_variables(args: &TransactionArgs) -> Result<Value> {
     transaction_variables_from(
         args.offset,
@@ -165,5 +227,29 @@ mod tests {
         assert!(
             transaction_variables_from(0, 100, "", Some("2026-01-01"), Some("2026-01-31")).is_ok()
         );
+    }
+
+    #[test]
+    fn update_variables_target_one_exact_transaction() {
+        assert_eq!(
+            update_transaction_variables("tx-1", "cat-1"),
+            serde_json::json!({
+                "input": {
+                    "id": "tx-1",
+                    "category": "cat-1"
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn write_documents_use_known_minimal_payload_shapes() {
+        assert!(CATEGORIES.contains("group {"));
+        assert!(CATEGORIES.contains("isDisabled"));
+        assert!(GET_TRANSACTION_FOR_UPDATE.contains("redirectPosted: false"));
+        assert!(UPDATE_TRANSACTION.contains("mutation Web_TransactionDrawerUpdateTransaction"));
+        assert!(UPDATE_TRANSACTION.contains("fieldErrors {"));
+        assert!(!GET_TRANSACTION_FOR_UPDATE.contains("__typename"));
+        assert!(!UPDATE_TRANSACTION.contains("__typename"));
     }
 }

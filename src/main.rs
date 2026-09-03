@@ -1,11 +1,13 @@
 mod browser;
 mod cli;
 mod client;
+mod graphql;
 mod install;
 mod output;
 mod paths;
 mod queries;
 mod session;
+mod transaction_update;
 
 use std::io::Read;
 use std::process::ExitCode;
@@ -17,6 +19,7 @@ use cli::AuthCommand;
 use cli::BrowserArgs;
 use cli::Cli;
 use cli::Command;
+use cli::TransactionCommand;
 use client::LoginResult;
 
 fn main() -> ExitCode {
@@ -50,6 +53,18 @@ fn entry() -> Result<()> {
             )?;
             output::print_accounts(&data, args.json)?;
         }
+        Command::Categories(args) => {
+            let data = graphql_from_auth(
+                &args.browser,
+                args.session_file,
+                "GetCategories",
+                queries::CATEGORIES,
+                serde_json::json!({}),
+                false,
+            )?;
+            let categories = transaction_update::parse_categories(&data)?;
+            output::print_categories(&categories, args.json)?;
+        }
         Command::Transactions(args) => {
             let variables = queries::transaction_variables(&args)?;
             let data = graphql_from_auth(
@@ -62,6 +77,9 @@ fn entry() -> Result<()> {
             )?;
             output::print_transactions(&data, args.json)?;
         }
+        Command::Transaction { command } => match command {
+            TransactionCommand::Update(args) => update_transaction(args)?,
+        },
         Command::Gql(args) => {
             let query = std::fs::read_to_string(&args.query_file)
                 .with_context(|| format!("failed to read {}", args.query_file.display()))?;
@@ -88,6 +106,35 @@ fn entry() -> Result<()> {
     Ok(())
 }
 
+enum SelectedClient {
+    Saved(client::MonarchClient),
+    Browser(browser::BrowserMonarchClient),
+}
+
+impl SelectedClient {
+    fn graphql(
+        &self,
+        operation: &str,
+        query: &str,
+        variables: serde_json::Value,
+    ) -> Result<serde_json::Value> {
+        self.graphql_full_or_data(operation, query, variables, false)
+    }
+
+    fn graphql_full_or_data(
+        &self,
+        operation: &str,
+        query: &str,
+        variables: serde_json::Value,
+        full: bool,
+    ) -> Result<serde_json::Value> {
+        match self {
+            Self::Saved(client) => client.graphql_full_or_data(operation, query, variables, full),
+            Self::Browser(client) => client.graphql_full_or_data(operation, query, variables, full),
+        }
+    }
+}
+
 fn client_from_session(path: Option<std::path::PathBuf>) -> Result<client::MonarchClient> {
     let path = paths::session_file(path)?;
     let stored = session::load(&path).with_context(|| {
@@ -112,6 +159,19 @@ fn browser_client_from_args(args: &BrowserArgs) -> Result<browser::BrowserMonarc
     browser::BrowserMonarchClient::connect(browser_options(args))
 }
 
+fn selected_client_from_auth(
+    browser_args: &BrowserArgs,
+    session_file: Option<std::path::PathBuf>,
+) -> Result<SelectedClient> {
+    if browser_args.enabled() {
+        return Ok(SelectedClient::Browser(browser_client_from_args(
+            browser_args,
+        )?));
+    }
+
+    Ok(SelectedClient::Saved(client_from_session(session_file)?))
+}
+
 fn graphql_from_auth(
     browser_args: &BrowserArgs,
     session_file: Option<std::path::PathBuf>,
@@ -120,13 +180,23 @@ fn graphql_from_auth(
     variables: serde_json::Value,
     full: bool,
 ) -> Result<serde_json::Value> {
-    if browser_args.enabled() {
-        let client = browser_client_from_args(browser_args)?;
-        return client.graphql_full_or_data(operation, query, variables, full);
+    selected_client_from_auth(browser_args, session_file)?
+        .graphql_full_or_data(operation, query, variables, full)
+}
+
+fn update_transaction(args: cli::TransactionUpdateArgs) -> Result<()> {
+    let selected = selected_client_from_auth(&args.browser, args.session_file.clone())?;
+    let execution = transaction_update::execute(&args, |operation, query, variables| {
+        selected.graphql(operation, query, variables)
+    })?;
+
+    output::print_transaction_update(&execution.outcome, args.json)?;
+
+    if let Some(failure) = execution.failure {
+        return Err(failure);
     }
 
-    let client = client_from_session(session_file)?;
-    client.graphql_full_or_data(operation, query, variables, full)
+    Ok(())
 }
 
 fn auth_login(args: cli::LoginArgs) -> Result<()> {

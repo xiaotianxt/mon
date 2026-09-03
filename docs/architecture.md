@@ -8,7 +8,10 @@ agents and scripts.
 
 - `cli`: typed clap commands.
 - `client`: blocking HTTP login and GraphQL calls.
+- `browser`: fixed-tab browser-session GraphQL transport through bro.
+- `graphql`: shared typed parsing and classification of top-level GraphQL errors.
 - `queries`: built-in GraphQL documents and variable builders.
+- `transaction_update`: exact category resolution, single-transaction mutation policy, payload validation, and read-back outcome classification.
 - `session`: local token storage in `~/.mon/session.json`.
 - `paths`: home and session path resolution.
 - `output`: compact human tables and JSON printing.
@@ -64,6 +67,23 @@ Monarch rate-limits repeated password login attempts and may require CAPTCHA.
 - HTTP 429 responses are surfaced as explicit rate-limit errors;
 - `CAPTCHA_REQUIRED` stops automated login attempts instead of retrying.
 
-Domain-specific workflows should live outside this repo and call the general
-JSON commands (`mon transactions --json`, `mon accounts --json`, or
-`mon gql --full`) as data sources.
+## Write Safety
+
+Domain-specific reasoning remains outside this repository and consumes mon's
+JSON commands as data sources. `mon transaction update` is the only built-in
+domain mutation. It accepts one explicit transaction id and one exact category
+name or id; it never searches, writes batches, creates rules, retries a
+mutation, or falls back to another GraphQL document.
+
+The command reads the transaction before writing and verifies it afterward.
+Only an exact target-category read-back is success. Definitive payload or
+schema rejection may return `failed`; ambiguous transport failures, malformed
+mutation responses, conflicting observations, and failed verification return
+`outcome-unknown`. Both exit non-zero.
+
+Top-level GraphQL errors use a small shared typed representation. Standard
+extension codes identify validation and bad-input failures. Monarch currently
+omits extension codes for some document failures, so HTTP 400 GraphQL envelopes
+from built-in operations are treated as adapter/schema incompatibility. Unknown
+codes remain ambiguous. Both saved-token and browser transports use the same
+parser.

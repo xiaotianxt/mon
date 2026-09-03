@@ -1,6 +1,10 @@
 use anyhow::Result;
 use serde_json::Value;
 
+use crate::transaction_update::Category;
+use crate::transaction_update::CategoryRef;
+use crate::transaction_update::UpdateOutcome;
+
 pub fn print_json(value: &Value) -> Result<()> {
     println!("{}", serde_json::to_string_pretty(value)?);
     Ok(())
@@ -73,6 +77,51 @@ pub fn print_transactions(data: &Value, json: bool) -> Result<()> {
     Ok(())
 }
 
+pub fn print_categories(categories: &[Category], json: bool) -> Result<()> {
+    if json {
+        return print_json(&serde_json::json!({ "categories": categories }));
+    }
+
+    println!(
+        "{:<20} {:<8} {:<10} {:<20} name",
+        "id", "disabled", "type", "group"
+    );
+    for category in categories {
+        println!(
+            "{:<20} {:<8} {:<10} {:<20} {}",
+            truncate(&category.id, 20),
+            category.is_disabled,
+            truncate(&category.group.kind, 10),
+            truncate(&category.group.name, 20),
+            category.name
+        );
+    }
+    Ok(())
+}
+
+pub fn print_transaction_update(outcome: &UpdateOutcome, json: bool) -> Result<()> {
+    if json {
+        return print_json(&serde_json::to_value(outcome)?);
+    }
+
+    let changed = outcome
+        .changed
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "unknown".to_owned());
+
+    println!(
+        "{}: transaction {}: {} -> {} (changed: {}, would change: {}, verified: {})",
+        outcome.status.as_str(),
+        outcome.transaction_id,
+        format_category(outcome.before_category.as_ref()),
+        format_category(outcome.after_category.as_ref()),
+        changed,
+        outcome.would_change,
+        outcome.verified,
+    );
+    Ok(())
+}
+
 pub fn str_at(value: &Value, path: &[&str]) -> String {
     let mut current = value;
     for segment in path {
@@ -99,6 +148,17 @@ fn truncate(value: &str, width: usize) -> String {
         .collect::<String>();
     result.push_str("...");
     result
+}
+
+fn format_category(category: Option<&CategoryRef>) -> String {
+    match category {
+        Some(category) => {
+            let name = serde_json::to_string(&category.name)
+                .unwrap_or_else(|_| "\"<invalid>\"".to_owned());
+            format!("{name} ({})", category.id)
+        }
+        None => "<none>".to_owned(),
+    }
 }
 
 fn first_nonempty(primary: String, fallback: String) -> String {

@@ -20,7 +20,9 @@ changes its web app API.
 - `mon auth login`: login with email/password, handle MFA, and save a local token.
 - `mon auth token`: store an existing token without logging in.
 - `mon accounts`: list accounts, or print raw JSON.
+- `mon categories`: list category ids, names, disabled state, and group metadata.
 - `mon transactions`: search transactions by text/date with deterministic output.
+- `mon transaction update`: update one exact transaction category with read-back verification.
 - `mon gql`: run a checked-in or ad-hoc GraphQL document.
 - `--browser`: run data commands through an already logged-in Monarch web app
   tab via bro instead of the saved token.
@@ -108,6 +110,8 @@ browser session instead:
 mon auth status --browser --json
 mon accounts --browser --json
 mon transactions --browser --start-date 2026-04-17 --end-date 2026-05-17 --json
+mon categories --browser --json
+mon transaction update TRANSACTION_ID --category "Groceries" --dry-run --browser --json
 mon gql --browser --operation GetAccounts --query-file queries/accounts.graphql
 ```
 
@@ -144,6 +148,44 @@ mon transactions --search "payroll" --limit 200 --json
 mon transactions --browser --start-date 2026-04-17 --end-date 2026-05-17 --json
 ```
 
+List categories:
+
+```bash
+mon categories
+mon categories --json
+mon categories --browser --json
+```
+
+Preview a category change for one exact transaction:
+
+```bash
+mon transaction update TRANSACTION_ID --category "Groceries" --dry-run --json
+```
+
+Apply by exact category name or id:
+
+```bash
+mon transaction update TRANSACTION_ID --category "Groceries" --json
+mon transaction update TRANSACTION_ID --category-id CATEGORY_ID --browser --json
+```
+
+Category names are trimmed and matched exactly, case-insensitively. Missing,
+ambiguous, and disabled categories are rejected; use `--category-id` to
+resolve duplicate names. The update command never searches for transaction
+ids, performs bulk updates, creates rules, retries a mutation, or falls back to
+another GraphQL document.
+
+A write succeeds only when read-back finds the requested category. Definitive
+payload or schema rejection returns `failed`. Network failures, timeouts,
+malformed mutation responses, conflicting observations, and failed read-back
+return `outcome-unknown` when the final state cannot be proven. Both states exit
+non-zero.
+
+Update JSON contains `status`, `changed`, `wouldChange`, `verified`,
+`transactionId`, `beforeCategory`, and `afterCategory`. `changed` is `null` when
+the final state is unknown. During a dry run, `afterCategory` is the proposed
+target and `verified` is false.
+
 Run an arbitrary GraphQL file:
 
 ```bash
@@ -175,6 +217,8 @@ mon is designed for agent use:
 - password login is session-aware to reduce rate-limit pressure;
 - browser mode reuses an already logged-in browser session without copying
   cookies or Monarch tokens into `~/.mon/session.json`;
+- the only built-in domain write targets one explicit transaction and category;
+- write mutations are never retried automatically and success requires exact read-back verification;
 - HTTP 429 and CAPTCHA_REQUIRED responses are surfaced as first-class errors,
   not retried blindly.
 
