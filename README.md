@@ -33,16 +33,18 @@ changes its web app API.
 
 ### Agent Skill
 
-Install the optional Codex/agent skill for `mon` workflows:
+Install the optional agent skill for `mon` workflows:
 
 ```bash
-npx -y github:xiaotianxt/skills mon
+npx skills@latest add xiaotianxt/mon -y
 ```
 
-After the npm package is published:
+Install to a specific agent harness (such as Pi, Codex, or OpenCode):
 
 ```bash
-npx -y @xiaotianxt/skills mon
+npx skills@latest add xiaotianxt/mon --agent pi -y
+npx skills@latest add xiaotianxt/mon --agent codex -y
+npx skills@latest add xiaotianxt/mon --agent opencode -y
 ```
 
 ### Homebrew

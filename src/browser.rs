@@ -216,7 +216,7 @@ impl BrowserMonarchClient {
         let poll_code = format!(
             r#"(window.{RESULT_ROOT} && window.{RESULT_ROOT}[{key_literal}]) || {{ state: "missing" }}"#
         );
-        let deadline = Instant::now() + Duration::from_secs(30);
+        let deadline = Instant::now() + Duration::from_secs(60);
 
         loop {
             sleep(Duration::from_millis(250));

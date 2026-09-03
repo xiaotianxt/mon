@@ -1,0 +1,43 @@
+query GetAccounts {
+  accounts {
+    id
+    displayName
+    syncDisabled
+    deactivatedAt
+    isHidden
+    isAsset
+    mask
+    currentBalance
+    displayBalance
+    includeInNetWorth
+    hideFromList
+    hideTransactionsFromReports
+    dataProvider
+    isManual
+    transactionsCount
+    holdingsCount
+    logoUrl
+    type {
+      name
+      display
+      group
+      __typename
+    }
+    subtype {
+      name
+      display
+      __typename
+    }
+    institution {
+      id
+      name
+      __typename
+    }
+    __typename
+  }
+  householdPreferences {
+    id
+    accountGroupOrder
+    __typename
+  }
+}

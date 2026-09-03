@@ -6,6 +6,7 @@ use clap::Subcommand;
 
 #[derive(Debug, Parser)]
 #[command(name = "mon")]
+#[command(version)]
 #[command(about = "AI-native Monarch Money CLI for structured local finance workflows")]
 pub struct Cli {
     #[command(subcommand)]
@@ -309,7 +310,15 @@ impl BrowserArgs {
 
 #[cfg(test)]
 mod tests {
+    use clap::CommandFactory;
+
     use super::*;
+
+    #[test]
+    fn exposes_package_version() {
+        let command = Cli::command();
+        assert_eq!(command.get_version(), Some(env!("CARGO_PKG_VERSION")));
+    }
 
     #[test]
     fn accepts_legacy_openbrowser_flag_aliases() {
