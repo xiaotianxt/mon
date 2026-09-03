@@ -427,14 +427,42 @@ fn find_monarch_tab(
 
     let text = mcp.call_tool_text("tabs_context", args)?;
     let parsed_browser_id = parse_browser_id(&text);
-    let tab = parse_tabs_context(&text).with_context(|| {
-        "no Monarch browser tab found; open https://app.monarch.com/dashboard in a bro-connected browser and retry with --browser"
-    })?;
+    if let Some(tab) = parse_tabs_context(&text) {
+        return Ok(BrowserTabSelection {
+            tab_id: tab.id,
+            browser_id: requested_browser_id.or(parsed_browser_id),
+        });
+    }
 
-    Ok(BrowserTabSelection {
-        tab_id: tab.id,
-        browser_id: requested_browser_id.or(parsed_browser_id),
-    })
+    // If no Monarch tab exists in the current window, open one in the background.
+    let target_browser_id = requested_browser_id.or(parsed_browser_id);
+    let mut create_args = json!({
+        "url": format!("{MONARCH_APP_PREFIX}dashboard"),
+        "active": false,
+    });
+    if let Some(browser_id) = &target_browser_id {
+        create_args["browserId"] = json!(browser_id);
+    }
+
+    if let Ok(created_text) = mcp.call_tool_text("tabs_create", create_args) {
+        if let Some(tab_id) = parse_created_tab_id(&created_text) {
+            sleep(Duration::from_millis(1500));
+            return Ok(BrowserTabSelection {
+                tab_id,
+                browser_id: target_browser_id,
+            });
+        }
+    }
+
+    anyhow::bail!(
+        "no Monarch browser tab found; open https://app.monarch.com/dashboard in your browser (Helium or Chrome) and retry"
+    )
+}
+
+fn parse_created_tab_id(text: &str) -> Option<u64> {
+    let rest = text.trim().strip_prefix("Created tab: ")?;
+    let digits = rest.split_whitespace().next()?;
+    digits.parse::<u64>().ok()
 }
 
 fn read_bro_token(settings_file: Option<PathBuf>) -> Result<String> {
@@ -529,6 +557,15 @@ fn request_nonce() -> Result<u128> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_created_tab_id() {
+        assert_eq!(
+            parse_created_tab_id("Created tab: 1068127084 (window 1068126889)"),
+            Some(1068127084)
+        );
+        assert_eq!(parse_created_tab_id("Failed to create"), None);
+    }
 
     #[test]
     fn parses_browser_id() {

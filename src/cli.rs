@@ -15,15 +15,15 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
-    /// Manage Monarch auth and local session state.
+    /// Inspect Monarch browser auth status.
     Auth {
         #[command(subcommand)]
         command: AuthCommand,
     },
     /// List Monarch accounts.
-    Accounts(JsonSessionArgs),
+    Accounts(JsonArgs),
     /// List Monarch transaction categories.
-    Categories(JsonSessionArgs),
+    Categories(JsonArgs),
     /// Search Monarch transactions.
     Transactions(TransactionArgs),
     /// Mutate one exact Monarch transaction.
@@ -33,7 +33,7 @@ pub enum Command {
     },
     /// Run an arbitrary GraphQL document against Monarch.
     Gql(GqlArgs),
-    /// Validate local config and optional API connectivity.
+    /// Validate local config and Monarch browser connectivity.
     Doctor(DoctorArgs),
     /// Install mon into ~/.local/bin.
     Install(InstallArgs),
@@ -41,14 +41,8 @@ pub enum Command {
 
 #[derive(Debug, Subcommand)]
 pub enum AuthCommand {
-    /// Login with email/password and save the returned session token.
-    Login(LoginArgs),
-    /// Save an existing Monarch token without logging in.
-    Token(TokenArgs),
-    /// Show local auth status.
+    /// Show Monarch browser auth status.
     Status(StatusArgs),
-    /// Remove the saved session token.
-    Logout(LogoutArgs),
 }
 
 #[derive(Debug, Subcommand)]
@@ -58,84 +52,23 @@ pub enum TransactionCommand {
 }
 
 #[derive(Debug, Clone, Args)]
-pub struct JsonSessionArgs {
+pub struct JsonArgs {
     /// Print raw JSON instead of a compact table.
     #[arg(long)]
     pub json: bool,
 
     #[command(flatten)]
     pub browser: BrowserArgs,
-
-    /// Session file. Defaults to $MON_SESSION_FILE or ~/.mon/session.json.
-    #[arg(long)]
-    pub session_file: Option<PathBuf>,
-}
-
-#[derive(Debug, Clone, Args)]
-pub struct LoginArgs {
-    /// Monarch account email. Prompted when omitted.
-    #[arg(long)]
-    pub email: Option<String>,
-
-    /// Read password from stdin instead of prompting.
-    #[arg(long)]
-    pub password_stdin: bool,
-
-    /// MFA code to send during login. Prompted when Monarch requires MFA.
-    #[arg(long)]
-    pub mfa_code: Option<String>,
-
-    /// Re-authenticate even when the saved session is still valid.
-    #[arg(long)]
-    pub force: bool,
-
-    /// Print the token instead of saving it.
-    #[arg(long)]
-    pub no_save: bool,
-
-    /// Session file. Defaults to $MON_SESSION_FILE or ~/.mon/session.json.
-    #[arg(long)]
-    pub session_file: Option<PathBuf>,
-}
-
-#[derive(Debug, Clone, Args)]
-pub struct TokenArgs {
-    /// Token value. Prefer --token-stdin to avoid shell history.
-    #[arg(long)]
-    pub token: Option<String>,
-
-    /// Read token from stdin.
-    #[arg(long)]
-    pub token_stdin: bool,
-
-    /// Session file. Defaults to $MON_SESSION_FILE or ~/.mon/session.json.
-    #[arg(long)]
-    pub session_file: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Args)]
 pub struct StatusArgs {
-    /// Verify the token with a lightweight Monarch API request.
-    #[arg(long)]
-    pub online: bool,
-
     /// Print JSON.
     #[arg(long)]
     pub json: bool,
 
     #[command(flatten)]
     pub browser: BrowserArgs,
-
-    /// Session file. Defaults to $MON_SESSION_FILE or ~/.mon/session.json.
-    #[arg(long)]
-    pub session_file: Option<PathBuf>,
-}
-
-#[derive(Debug, Clone, Args)]
-pub struct LogoutArgs {
-    /// Session file. Defaults to $MON_SESSION_FILE or ~/.mon/session.json.
-    #[arg(long)]
-    pub session_file: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -166,10 +99,6 @@ pub struct TransactionArgs {
 
     #[command(flatten)]
     pub browser: BrowserArgs,
-
-    /// Session file. Defaults to $MON_SESSION_FILE or ~/.mon/session.json.
-    #[arg(long)]
-    pub session_file: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -206,10 +135,6 @@ pub struct TransactionUpdateArgs {
 
     #[command(flatten)]
     pub browser: BrowserArgs,
-
-    /// Session file. Defaults to $MON_SESSION_FILE or ~/.mon/session.json.
-    #[arg(long)]
-    pub session_file: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -232,28 +157,16 @@ pub struct GqlArgs {
 
     #[command(flatten)]
     pub browser: BrowserArgs,
-
-    /// Session file. Defaults to $MON_SESSION_FILE or ~/.mon/session.json.
-    #[arg(long)]
-    pub session_file: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Args)]
 pub struct DoctorArgs {
-    /// Verify the token with a lightweight Monarch API request.
-    #[arg(long)]
-    pub online: bool,
-
     /// Print JSON.
     #[arg(long)]
     pub json: bool,
 
     #[command(flatten)]
     pub browser: BrowserArgs,
-
-    /// Session file. Defaults to $MON_SESSION_FILE or ~/.mon/session.json.
-    #[arg(long)]
-    pub session_file: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -269,15 +182,15 @@ pub struct InstallArgs {
 
 #[derive(Debug, Clone, Default, Args)]
 pub struct BrowserArgs {
-    /// Use a logged-in Monarch web app tab through bro instead of the saved token.
-    #[arg(long)]
+    /// Legacy compatibility flag; browser execution is now the default and only mode.
+    #[arg(long, hide = true)]
     pub browser: bool,
 
-    /// Explicit browser tab id to use with --browser.
+    /// Explicit browser tab id to use.
     #[arg(long, value_name = "TAB_ID")]
     pub browser_tab_id: Option<u64>,
 
-    /// Explicit bro browser id to use with --browser.
+    /// Explicit bro browser id to use.
     #[arg(long, value_name = "BROWSER_ID")]
     pub browser_id: Option<String>,
 
@@ -296,16 +209,6 @@ pub struct BrowserArgs {
         value_name = "PATH"
     )]
     pub bro_settings: Option<PathBuf>,
-}
-
-impl BrowserArgs {
-    pub fn enabled(&self) -> bool {
-        self.browser
-            || self.browser_tab_id.is_some()
-            || self.browser_id.is_some()
-            || self.bro_mcp_url.is_some()
-            || self.bro_settings.is_some()
-    }
 }
 
 #[cfg(test)]
@@ -346,6 +249,25 @@ mod tests {
     }
 
     #[test]
+    fn accepts_commands_without_browser_flag() {
+        let cli = Cli::try_parse_from(["mon", "accounts", "--json"]).unwrap();
+        let Command::Accounts(args) = cli.command else {
+            panic!("expected accounts command");
+        };
+        assert!(args.json);
+    }
+
+    #[test]
+    fn accepts_legacy_browser_flag_silently() {
+        let cli = Cli::try_parse_from(["mon", "accounts", "--browser", "--json"]).unwrap();
+        let Command::Accounts(args) = cli.command else {
+            panic!("expected accounts command");
+        };
+        assert!(args.browser.browser);
+        assert!(args.json);
+    }
+
+    #[test]
     fn preserves_transactions_search_cli() {
         let cli = Cli::try_parse_from([
             "mon",
@@ -372,13 +294,12 @@ mod tests {
     }
 
     #[test]
-    fn parses_categories_with_browser_auth() {
-        let cli = Cli::try_parse_from(["mon", "categories", "--browser", "--json"]).unwrap();
+    fn parses_categories_command() {
+        let cli = Cli::try_parse_from(["mon", "categories", "--json"]).unwrap();
 
         let Command::Categories(args) = cli.command else {
             panic!("expected categories command");
         };
-        assert!(args.browser.enabled());
         assert!(args.json);
     }
 
@@ -395,8 +316,6 @@ mod tests {
             "--json",
             "--browser-tab-id",
             "42",
-            "--session-file",
-            "/tmp/session.json",
         ])
         .unwrap();
 
@@ -413,10 +332,6 @@ mod tests {
         assert!(args.dry_run);
         assert!(args.json);
         assert_eq!(args.browser.browser_tab_id, Some(42));
-        assert_eq!(
-            args.session_file.as_deref(),
-            Some(std::path::Path::new("/tmp/session.json"))
-        );
     }
 
     #[test]

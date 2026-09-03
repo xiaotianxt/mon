@@ -1,57 +1,47 @@
 ---
 name: mon
-description: "Use when an agent needs to access Monarch Money through the local mon CLI: authenticate, inspect accounts, search transactions, update one exact transaction category, run GraphQL operations, or use a logged-in browser session through bro while keeping tokens and cookies private."
-compatibility: "Requires mon 0.3.0 or newer; browser mode also requires a running bro server and connected browser extension."
+description: "Use when an agent needs to access Monarch Money through the local mon CLI: inspect accounts, list categories, search transactions, update one exact transaction category, or run GraphQL operations via the user's active browser session while keeping tokens and cookies private."
+compatibility: "Requires mon 0.4.0 or newer, a running bro server on 127.0.0.1:3500, and an active Monarch tab in Chromium/Helium."
 ---
 
 # mon
 
 Use this skill when you need to access Monarch Money from the local `mon` CLI.
 
+## Overview
+
+`mon` operates directly through your logged-in Monarch Money browser session via `bro`.
+It requires no passwords, API tokens, or saved session files. All commands execute
+automatically through an open `https://app.monarch.com/` tab.
+
 ## Commands
 
 - `mon --version`: show the installed mon version.
-- `mon auth login`: login and save a local token.
-- `mon auth status --online`: verify saved auth.
-- `mon auth status --browser --json`: verify the logged-in Monarch browser session through bro.
-- `mon accounts --json`: fetch linked accounts.
-- `mon accounts --browser --json`: fetch accounts through an already logged-in Monarch browser tab.
-- `mon categories --json`: list category ids, names, disabled state, and group metadata.
-- `mon categories --browser --json`: list categories through the browser session.
-- `mon transactions --search TEXT --start-date YYYY-MM-DD --end-date YYYY-MM-DD --json`: search transactions.
-- `mon transactions --browser --start-date YYYY-MM-DD --end-date YYYY-MM-DD --json`: search transactions through the browser session.
+- `mon auth status`: check active browser session and subscription entitlement.
+- `mon accounts`: fetch linked accounts in a compact table.
+- `mon accounts --json`: fetch accounts as structured JSON.
+- `mon categories`: list transaction categories and groups.
+- `mon categories --json`: list categories as structured JSON.
+- `mon transactions --search TEXT --start-date YYYY-MM-DD --end-date YYYY-MM-DD`: search transactions.
+- `mon transactions --limit 50 --json`: fetch recent transactions as JSON.
 - `mon transaction update TRANSACTION_ID --category NAME --dry-run --json`: preview one exact category update.
 - `mon transaction update TRANSACTION_ID --category NAME --json`: apply one exact category update by name.
 - `mon transaction update TRANSACTION_ID --category-id ID --json`: apply one exact category update by id.
 - `mon gql --operation NAME --query-file FILE --variables '{}'`: run a custom GraphQL document.
-- `mon gql --browser --operation NAME --query-file FILE --variables '{}'`: run GraphQL inside the Monarch web app tab.
-- `mon doctor`: inspect local paths and auth state.
+- `mon doctor`: inspect local bro bridge and Monarch tab connectivity.
 
-## Auth Strategy
+## Runtime Requirements
 
-- Use the saved token path for durable unattended CLI work: `mon auth status --online`, then `mon ... --json`.
-- If the saved token is expired or password login risks CAPTCHA/rate limits, prefer `--browser` when a bro-connected browser is already logged in to `https://app.monarch.com/`.
-- Browser mode reads the local bro bearer token from `~/.bro/settings.json`, connects to `http://127.0.0.1:3500/mcp`, finds a Monarch tab, and runs GraphQL from inside that page with browser cookies/CSRF.
-- Do not try to print, scrape, or import a Monarch browser token into `~/.mon/session.json`; recent Monarch browser state may not expose a reusable API token.
-- Use `--browser-tab-id TAB_ID` when multiple Monarch tabs are open.
-
-## Binary Selection
-
-Run `mon --version` before relying on newer commands. Version 0.3.0 introduced
-`categories` and verified single-transaction category updates. If Homebrew is
-behind, use `brew update && brew upgrade xiaotianxt/tap/mon`. When developing
-from a checkout, build with `cargo build --release` and resolve
-`target/release/mon` relative to this skill's repository instead of assuming a
-user-specific absolute path.
+- `bro` server running on `127.0.0.1:3500` (token in `~/.bro/settings.json`).
+- Chromium-family browser (Helium or Chrome) with the bro WebExtension connected.
+- An open Monarch tab at `https://app.monarch.com/dashboard` (or any app page).
+- If multiple Monarch tabs are open, optionally target one with `--browser-tab-id TAB_ID`.
 
 ## Safety
 
-Do not print `~/.mon/session.json` or Monarch tokens. Prefer JSON command output
-for agent workflows. Avoid repeated password login attempts; prefer the saved
-session and `mon auth status --online`. When using `--browser`, do not print the
-bro bearer token, browser cookies, localStorage values, or raw
-transaction details unless the user explicitly asks for them; aggregate first
-for spending summaries.
+All commands execute locally through the active browser session. Do not print
+the bro bearer token, browser cookies, or raw transaction details unless the
+user explicitly asks for them; aggregate first for spending summaries.
 
 Treat `mon transaction update` as an explicit write. Prefer `--dry-run` first
 and do not apply a change unless the user authorized the exact transaction and

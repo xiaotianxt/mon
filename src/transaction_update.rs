@@ -596,7 +596,6 @@ mod tests {
             dry_run,
             json: true,
             browser: BrowserArgs::default(),
-            session_file: None,
         }
     }
 

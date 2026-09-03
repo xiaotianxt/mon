@@ -1,32 +1,25 @@
 # mon
 
 mon is an AI-native command line tool for Monarch Money. It gives local agents
-and scripts a small, stable interface for auth, structured GraphQL access,
-account inspection, transaction search, and custom finance workflows.
+and scripts a fast, stable interface for account inspection, category review,
+transaction search, single-transaction category updates, and custom GraphQL
+access directly through your logged-in browser session.
 
-The implementation is based on Monarch's web API shape documented by the
-community Python project [`hammem/monarchmoney`](https://github.com/hammem/monarchmoney):
-
-- login: `POST https://api.monarch.com/auth/login/`
-- GraphQL: `POST https://api.monarch.com/graphql`
-- auth header: `Authorization: Token <token>`
-
-Monarch does not publish this as an official public API. Treat this tool as a
-local personal automation client and expect occasional breakage when Monarch
-changes its web app API.
+Instead of storing API tokens or passwords that expire or risk CAPTCHA/MFA
+lockouts, mon communicates with Monarch through your active Chromium/Helium
+browser tab via [bro](https://github.com/xiaotianxt/bro). Your browser's
+normal session cookies and CSRF protections are reused without copying credentials
+to disk.
 
 ## What It Does
 
-- `mon auth login`: login with email/password, handle MFA, and save a local token.
-- `mon auth token`: store an existing token without logging in.
-- `mon accounts`: list accounts, or print raw JSON.
+- `mon auth status`: verify active browser session and subscription entitlement.
+- `mon accounts`: list accounts in a compact table or raw JSON.
 - `mon categories`: list category ids, names, disabled state, and group metadata.
-- `mon transactions`: search transactions by text/date with deterministic output.
+- `mon transactions`: search transactions by text and date with deterministic output.
 - `mon transaction update`: update one exact transaction category with read-back verification.
-- `mon gql`: run a checked-in or ad-hoc GraphQL document.
-- `--browser`: run data commands through an already logged-in Monarch web app
-  tab via bro instead of the saved token.
-- `mon doctor`: verify local config and optional online connectivity.
+- `mon gql`: run an arbitrary checked-in or ad-hoc GraphQL document.
+- `mon doctor`: verify bro bridge connectivity and active Monarch tab status.
 - `mon install`: copy the current binary into `~/.local/bin`.
 
 ## Install
@@ -72,65 +65,25 @@ make install-local
 `make install-local` installs `mon` to `~/.local/bin/mon`. Make sure
 `~/.local/bin` is in your `PATH`.
 
-## Auth
+## How It Works
 
-Interactive login:
+mon connects to the local `bro` MCP server (`http://127.0.0.1:3500/mcp`),
+locates an open Monarch tab (`https://app.monarch.com/`), and executes GraphQL
+queries and mutations inside that page using the browser's existing credentials
+and CSRF tokens.
 
-```bash
-mon auth login
-```
+No API tokens or credentials are saved to `~/.mon`. To use mon:
 
-`mon auth login` reuses a valid saved session by default. This is intentional:
-Monarch rate-limits repeated password login attempts and may require CAPTCHA.
-Use `mon auth login --force` only when you intentionally want to replace the
-saved session.
+1. Have `bro` running (`bro doctor` or `bro serve`).
+2. Log in to `https://app.monarch.com/` in your browser (Chrome or Helium) with the bro extension connected.
+3. Run `mon` commands directly from your terminal.
 
-Non-interactive password flow:
-
-```bash
-printf '%s' "$MONARCH_PASSWORD" | mon auth login --email you@example.com --password-stdin
-```
-
-If Monarch requires MFA, `mon` prompts for the MFA code from `/dev/tty`, so the
-password can still come from stdin.
-
-Store an existing token without putting it in shell history:
+Useful browser targeting options (when multiple tabs or browser instances are open):
 
 ```bash
-printf '%s' "$MONARCH_TOKEN" | mon auth token --token-stdin
+mon accounts --browser-tab-id 1068097338
+mon accounts --browser-id 545de677-bb20-4194-ac5f-c7073ac044e2
 ```
-
-The session is stored at `~/.mon/session.json` with `0600` permissions. Override
-it with `MON_SESSION_FILE` or `--session-file`.
-
-### Browser Session Fallback
-
-When the saved Monarch token is missing or expired, `mon` can use the active
-browser session instead:
-
-```bash
-mon auth status --browser --json
-mon accounts --browser --json
-mon transactions --browser --start-date 2026-04-17 --end-date 2026-05-17 --json
-mon categories --browser --json
-mon transaction update TRANSACTION_ID --category "Groceries" --dry-run --browser --json
-mon gql --browser --operation GetAccounts --query-file queries/accounts.graphql
-```
-
-Browser mode does not extract or save a Monarch token. It connects to the local
-bro MCP server, finds an existing `https://app.monarch.com/` tab, and runs
-Monarch GraphQL from inside that page with the browser's normal cookie and CSRF
-state. Open Monarch in a bro-connected browser and log in before using
-`--browser`.
-
-Useful browser options:
-
-```bash
-mon auth status --browser --browser-tab-id 1068097338 --json
-mon accounts --browser --browser-id 545de677-bb20-4194-ac5f-c7073ac044e2 --json
-```
-
-`--browser-tab-id` is useful when multiple Monarch tabs are open.
 
 ## Usage
 
@@ -139,7 +92,6 @@ Show accounts:
 ```bash
 mon accounts
 mon accounts --json
-mon accounts --browser --json
 ```
 
 Search transactions:
@@ -147,7 +99,6 @@ Search transactions:
 ```bash
 mon transactions --search coffee --start-date 2026-01-01 --end-date 2026-04-30
 mon transactions --search "payroll" --limit 200 --json
-mon transactions --browser --start-date 2026-04-17 --end-date 2026-05-17 --json
 ```
 
 List categories:
@@ -155,7 +106,6 @@ List categories:
 ```bash
 mon categories
 mon categories --json
-mon categories --browser --json
 ```
 
 Preview a category change for one exact transaction:
@@ -168,7 +118,7 @@ Apply by exact category name or id:
 
 ```bash
 mon transaction update TRANSACTION_ID --category "Groceries" --json
-mon transaction update TRANSACTION_ID --category-id CATEGORY_ID --browser --json
+mon transaction update TRANSACTION_ID --category-id CATEGORY_ID --json
 ```
 
 Category names are trimmed and matched exactly, case-insensitively. Missing,
@@ -199,30 +149,22 @@ mon gql \
 
 ## Environment Variables
 
-- `MON_SESSION_FILE`: session file path. Defaults to `~/.mon/session.json`.
-- `BRO_MCP_URL`: bro MCP endpoint. Defaults to
-  `http://127.0.0.1:3500/mcp`.
+- `BRO_MCP_URL`: bro MCP endpoint. Defaults to `http://127.0.0.1:3500/mcp`.
 - `BRO_SETTINGS`: bro settings file. Defaults to `~/.bro/settings.json`.
 
-The former `OPENBROWSERMCP_MCP_URL`, `OPENBROWSERMCP_SETTINGS`,
-`--openbrowser-mcp-url`, and `--openbrowser-settings` names remain accepted as
-compatibility aliases.
+The former `OPENBROWSERMCP_MCP_URL` and `OPENBROWSERMCP_SETTINGS` names remain
+accepted as compatibility aliases.
 
 ## AI-Native Contract
 
 mon is designed for agent use:
 
 - every data command supports stable JSON output;
-- secrets are stored locally and never printed except with explicit
-  `mon auth login --no-save`;
+- no user credentials, passwords, or tokens are managed or saved;
+- execution directly reuses the user's active browser session via bro;
 - commands fail loudly with non-zero exits and contextual errors;
-- password login is session-aware to reduce rate-limit pressure;
-- browser mode reuses an already logged-in browser session without copying
-  cookies or Monarch tokens into `~/.mon/session.json`;
 - the only built-in domain write targets one explicit transaction and category;
-- write mutations are never retried automatically and success requires exact read-back verification;
-- HTTP 429 and CAPTCHA_REQUIRED responses are surfaced as first-class errors,
-  not retried blindly.
+- write mutations are never retried automatically and success requires exact read-back verification.
 
 ## Development
 
@@ -231,9 +173,6 @@ make fmt
 make check
 cargo test
 ```
-
-The project keeps dependencies small: `clap` for CLI parsing, blocking
-`reqwest` for HTTP, and `serde_json` for raw GraphQL data.
 
 ## Release
 

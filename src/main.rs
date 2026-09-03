@@ -1,15 +1,12 @@
 mod browser;
 mod cli;
-mod client;
 mod graphql;
 mod install;
 mod output;
 mod paths;
 mod queries;
-mod session;
 mod transaction_update;
 
-use std::io::Read;
 use std::process::ExitCode;
 
 use anyhow::Context;
@@ -20,7 +17,6 @@ use cli::BrowserArgs;
 use cli::Cli;
 use cli::Command;
 use cli::TransactionCommand;
-use client::LoginResult;
 
 fn main() -> ExitCode {
     match entry() {
@@ -37,15 +33,11 @@ fn entry() -> Result<()> {
 
     match cli.command {
         Command::Auth { command } => match command {
-            AuthCommand::Login(args) => auth_login(args)?,
-            AuthCommand::Token(args) => auth_token(args)?,
             AuthCommand::Status(args) => auth_status(args)?,
-            AuthCommand::Logout(args) => auth_logout(args)?,
         },
         Command::Accounts(args) => {
-            let data = graphql_from_auth(
+            let data = graphql(
                 &args.browser,
-                args.session_file,
                 "GetAccounts",
                 queries::ACCOUNTS,
                 serde_json::json!({}),
@@ -54,9 +46,8 @@ fn entry() -> Result<()> {
             output::print_accounts(&data, args.json)?;
         }
         Command::Categories(args) => {
-            let data = graphql_from_auth(
+            let data = graphql(
                 &args.browser,
-                args.session_file,
                 "GetCategories",
                 queries::CATEGORIES,
                 serde_json::json!({}),
@@ -67,9 +58,8 @@ fn entry() -> Result<()> {
         }
         Command::Transactions(args) => {
             let variables = queries::transaction_variables(&args)?;
-            let data = graphql_from_auth(
+            let data = graphql(
                 &args.browser,
-                args.session_file.clone(),
                 "GetTransactionsList",
                 queries::TRANSACTIONS,
                 variables,
@@ -87,14 +77,7 @@ fn entry() -> Result<()> {
                 Some(raw) => serde_json::from_str(&raw).context("--variables must be JSON")?,
                 None => serde_json::json!({}),
             };
-            let value = graphql_from_auth(
-                &args.browser,
-                args.session_file,
-                &args.operation,
-                &query,
-                variables,
-                args.full,
-            )?;
+            let value = graphql(&args.browser, &args.operation, &query, variables, args.full)?;
             output::print_json(&value)?;
         }
         Command::Doctor(args) => doctor(args)?,
@@ -106,46 +89,6 @@ fn entry() -> Result<()> {
     Ok(())
 }
 
-enum SelectedClient {
-    Saved(client::MonarchClient),
-    Browser(browser::BrowserMonarchClient),
-}
-
-impl SelectedClient {
-    fn graphql(
-        &self,
-        operation: &str,
-        query: &str,
-        variables: serde_json::Value,
-    ) -> Result<serde_json::Value> {
-        self.graphql_full_or_data(operation, query, variables, false)
-    }
-
-    fn graphql_full_or_data(
-        &self,
-        operation: &str,
-        query: &str,
-        variables: serde_json::Value,
-        full: bool,
-    ) -> Result<serde_json::Value> {
-        match self {
-            Self::Saved(client) => client.graphql_full_or_data(operation, query, variables, full),
-            Self::Browser(client) => client.graphql_full_or_data(operation, query, variables, full),
-        }
-    }
-}
-
-fn client_from_session(path: Option<std::path::PathBuf>) -> Result<client::MonarchClient> {
-    let path = paths::session_file(path)?;
-    let stored = session::load(&path).with_context(|| {
-        format!(
-            "no usable session at {}; run `mon auth login`, or use `--browser` when Monarch is already open in a bro-connected browser",
-            path.display()
-        )
-    })?;
-    client::MonarchClient::new(Some(stored.token))
-}
-
 fn browser_options(args: &BrowserArgs) -> browser::BrowserOptions {
     browser::BrowserOptions {
         tab_id: args.browser_tab_id,
@@ -155,39 +98,25 @@ fn browser_options(args: &BrowserArgs) -> browser::BrowserOptions {
     }
 }
 
-fn browser_client_from_args(args: &BrowserArgs) -> Result<browser::BrowserMonarchClient> {
+fn browser_client(args: &BrowserArgs) -> Result<browser::BrowserMonarchClient> {
     browser::BrowserMonarchClient::connect(browser_options(args))
 }
 
-fn selected_client_from_auth(
+fn graphql(
     browser_args: &BrowserArgs,
-    session_file: Option<std::path::PathBuf>,
-) -> Result<SelectedClient> {
-    if browser_args.enabled() {
-        return Ok(SelectedClient::Browser(browser_client_from_args(
-            browser_args,
-        )?));
-    }
-
-    Ok(SelectedClient::Saved(client_from_session(session_file)?))
-}
-
-fn graphql_from_auth(
-    browser_args: &BrowserArgs,
-    session_file: Option<std::path::PathBuf>,
     operation: &str,
     query: &str,
     variables: serde_json::Value,
     full: bool,
 ) -> Result<serde_json::Value> {
-    selected_client_from_auth(browser_args, session_file)?
-        .graphql_full_or_data(operation, query, variables, full)
+    let client = browser_client(browser_args)?;
+    client.graphql_full_or_data(operation, query, variables, full)
 }
 
 fn update_transaction(args: cli::TransactionUpdateArgs) -> Result<()> {
-    let selected = selected_client_from_auth(&args.browser, args.session_file.clone())?;
+    let client = browser_client(&args.browser)?;
     let execution = transaction_update::execute(&args, |operation, query, variables| {
-        selected.graphql(operation, query, variables)
+        client.graphql(operation, query, variables)
     })?;
 
     output::print_transaction_update(&execution.outcome, args.json)?;
@@ -199,242 +128,59 @@ fn update_transaction(args: cli::TransactionUpdateArgs) -> Result<()> {
     Ok(())
 }
 
-fn auth_login(args: cli::LoginArgs) -> Result<()> {
-    if !args.no_save && !args.force {
-        let path = paths::session_file(args.session_file.clone())?;
-        if let Ok(stored) = session::load(&path) {
-            let client = client::MonarchClient::new(Some(stored.token))?;
-            match client.graphql(
-                "GetSubscriptionDetails",
-                queries::SUBSCRIPTION,
-                serde_json::json!({}),
-            ) {
-                Ok(_) => {
-                    println!("saved session still valid: {}", path.display());
-                    return Ok(());
-                }
-                Err(err) => {
-                    let message = err.to_string();
-                    if message.contains("rate limited") || message.contains("CAPTCHA") {
-                        return Err(err).context(
-                            "saved session check failed; refusing to fall through to password login",
-                        );
-                    }
-                    eprintln!("mon: saved session is not valid; continuing with password login");
-                }
-            }
-        }
-    }
-
-    let email = match args.email {
-        Some(email) => email,
-        None => prompt("Email: ")?,
-    };
-    let password = if args.password_stdin {
-        read_stdin_secret("password from stdin")?
-    } else {
-        rpassword::prompt_password("Password: ").context("failed to read password")?
-    };
-
-    let client = client::MonarchClient::new(None)?;
-    let token = match client.login(&email, &password, args.mfa_code.as_deref())? {
-        LoginResult::Token(token) => token,
-        LoginResult::MfaRequired => {
-            let code = prompt("MFA code: ")?;
-            if code.trim().is_empty() {
-                anyhow::bail!("MFA code is required");
-            }
-            match client.login(&email, &password, Some(code.trim()))? {
-                LoginResult::Token(token) => token,
-                LoginResult::MfaRequired => anyhow::bail!("MFA is still required"),
-            }
-        }
-    };
-
-    if args.no_save {
-        println!("{token}");
-        return Ok(());
-    }
-
-    let path = paths::session_file(args.session_file)?;
-    session::save(&path, &token)?;
-    println!("saved session: {}", path.display());
-    Ok(())
-}
-
-fn auth_token(args: cli::TokenArgs) -> Result<()> {
-    let token = if args.token_stdin {
-        read_stdin_secret("token from stdin")?
-    } else if let Some(token) = args.token {
-        token
-    } else {
-        rpassword::prompt_password("Monarch token: ").context("failed to read token")?
-    };
-
-    let token = token.trim();
-    if token.is_empty() {
-        anyhow::bail!("empty token");
-    }
-
-    let path = paths::session_file(args.session_file)?;
-    session::save(&path, token)?;
-    println!("saved session: {}", path.display());
-    Ok(())
-}
-
 fn auth_status(args: cli::StatusArgs) -> Result<()> {
-    let path = paths::session_file(args.session_file)?;
-    let loaded = session::load(&path).ok();
-    let has_token = loaded.is_some();
-    let mut status = serde_json::json!({
-        "sessionFile": path,
-        "hasToken": has_token,
-    });
+    let client = browser_client(&args.browser)?;
+    let data = client.graphql(
+        "GetSubscriptionDetails",
+        queries::SUBSCRIPTION,
+        serde_json::json!({}),
+    )?;
 
-    if args.browser.enabled() {
-        let client = browser_client_from_args(&args.browser)?;
-        let data = client.graphql(
-            "GetSubscriptionDetails",
-            queries::SUBSCRIPTION,
-            serde_json::json!({}),
-        )?;
-        status["browser"] = serde_json::json!({
-            "online": true,
-            "tabId": client.tab_id(),
-            "browserId": client.browser_id(),
-            "subscription": data["subscription"].clone(),
-        });
-    } else if args.online {
-        let stored = loaded
-            .clone()
-            .context("no saved session; run `mon auth login`")?;
-        let client = client::MonarchClient::new(Some(stored.token))?;
-        let data = client.graphql(
-            "GetSubscriptionDetails",
-            queries::SUBSCRIPTION,
-            serde_json::json!({}),
-        )?;
-        status["online"] = serde_json::json!(true);
-        status["subscription"] = data["subscription"].clone();
-    }
+    let status = serde_json::json!({
+        "online": true,
+        "tabId": client.tab_id(),
+        "browserId": client.browser_id(),
+        "subscription": data["subscription"].clone(),
+    });
 
     if args.json {
         output::print_json(&status)?;
     } else {
-        println!("session: {}", status["sessionFile"].as_str().unwrap_or(""));
-        println!("token: {}", if has_token { "present" } else { "missing" });
-        if args.online {
-            println!("online: ok");
+        println!("auth: browser session active");
+        println!("tab: {}", client.tab_id());
+        if let Some(bid) = client.browser_id() {
+            println!("browser: {bid}");
         }
-        if args.browser.enabled() {
-            println!("browser: ok (tab {})", status["browser"]["tabId"]);
-        }
+        println!("subscription: ok");
     }
-    Ok(())
-}
-
-fn auth_logout(args: cli::LogoutArgs) -> Result<()> {
-    let path = paths::session_file(args.session_file)?;
-    if path.exists() {
-        std::fs::remove_file(&path)
-            .with_context(|| format!("failed to remove {}", path.display()))?;
-    }
-    println!("removed session: {}", path.display());
     Ok(())
 }
 
 fn doctor(args: cli::DoctorArgs) -> Result<()> {
-    let session_file = paths::session_file(args.session_file)?;
-    let config_dir = paths::config_dir()?;
-    let mut report = serde_json::json!({
-        "configDir": config_dir,
-        "sessionFile": session_file,
-        "sessionExists": session_file.exists(),
-        "monarchApi": client::MonarchClient::base_url(),
-    });
+    let client = browser_client(&args.browser)?;
+    let data = client.graphql(
+        "GetSubscriptionDetails",
+        queries::SUBSCRIPTION,
+        serde_json::json!({}),
+    )?;
 
-    if args.browser.enabled() {
-        let client = browser_client_from_args(&args.browser)?;
-        let data = client.graphql(
-            "GetSubscriptionDetails",
-            queries::SUBSCRIPTION,
-            serde_json::json!({}),
-        )?;
-        report["browser"] = serde_json::json!({
-            "online": true,
-            "tabId": client.tab_id(),
-            "browserId": client.browser_id(),
-            "subscription": data["subscription"].clone(),
-        });
-    } else if args.online {
-        let stored =
-            session::load(&session_file).context("no saved session; run `mon auth login`")?;
-        let client = client::MonarchClient::new(Some(stored.token))?;
-        let data = client.graphql(
-            "GetSubscriptionDetails",
-            queries::SUBSCRIPTION,
-            serde_json::json!({}),
-        )?;
-        report["online"] = serde_json::json!(true);
-        report["subscription"] = data["subscription"].clone();
-    }
+    let report = serde_json::json!({
+        "broConnected": true,
+        "tabId": client.tab_id(),
+        "browserId": client.browser_id(),
+        "monarchConnected": true,
+        "subscription": data["subscription"].clone(),
+    });
 
     if args.json {
         output::print_json(&report)?;
     } else {
-        println!("config: {}", report["configDir"].as_str().unwrap_or(""));
-        println!("session: {}", report["sessionFile"].as_str().unwrap_or(""));
-        println!(
-            "session token: {}",
-            if report["sessionExists"].as_bool().unwrap_or(false) {
-                "present"
-            } else {
-                "missing"
-            }
-        );
-        println!("api: {}", client::MonarchClient::base_url());
-        if args.online {
-            println!("online: ok");
+        println!("bro: connected");
+        println!("monarch tab: {} (active)", client.tab_id());
+        if let Some(bid) = client.browser_id() {
+            println!("browser instance: {bid}");
         }
-        if args.browser.enabled() {
-            println!("browser: ok (tab {})", report["browser"]["tabId"]);
-        }
+        println!("auth: active browser session");
     }
     Ok(())
-}
-
-fn prompt(label: &str) -> Result<String> {
-    use std::fs::OpenOptions;
-    use std::io::BufRead;
-    use std::io::BufReader;
-    use std::io::Write;
-
-    if let Ok(mut tty) = OpenOptions::new().read(true).write(true).open("/dev/tty") {
-        write!(tty, "{label}").context("failed to write prompt")?;
-        tty.flush().context("failed to flush prompt")?;
-
-        let mut value = String::new();
-        BufReader::new(tty)
-            .read_line(&mut value)
-            .context("failed to read /dev/tty")?;
-        return Ok(value.trim().to_owned());
-    }
-
-    print!("{label}");
-    std::io::stdout()
-        .flush()
-        .context("failed to flush stdout")?;
-    let mut value = String::new();
-    std::io::stdin()
-        .read_line(&mut value)
-        .context("failed to read stdin")?;
-    Ok(value.trim().to_owned())
-}
-
-fn read_stdin_secret(name: &str) -> Result<String> {
-    let mut value = String::new();
-    std::io::stdin()
-        .read_to_string(&mut value)
-        .with_context(|| format!("failed to read {name}"))?;
-    Ok(value.trim().to_owned())
 }

@@ -1,71 +1,46 @@
 # Architecture
 
-mon is a thin Rust client around Monarch Money's web API. The goal is not to
-mirror every screen in Monarch; it is to expose a reliable local surface for
-agents and scripts.
+mon is a thin, browser-native Rust CLI for Monarch Money. Rather than storing
+ephemeral API tokens or passwords that trigger CAPTCHAs, it delegates network
+transport and authentication directly to an active Monarch Money browser tab via
+[bro](https://github.com/xiaotianxt/bro).
 
 ## Modules
 
-- `cli`: typed clap commands.
-- `client`: blocking HTTP login and GraphQL calls.
-- `browser`: fixed-tab browser-session GraphQL transport through bro.
+- `cli`: typed clap commands and arguments.
+- `browser`: bro MCP connection, Monarch tab discovery, and in-page GraphQL execution.
 - `graphql`: shared typed parsing and classification of top-level GraphQL errors.
 - `queries`: built-in GraphQL documents and variable builders.
 - `transaction_update`: exact category resolution, single-transaction mutation policy, payload validation, and read-back outcome classification.
-- `session`: local token storage in `~/.mon/session.json`.
-- `paths`: home and session path resolution.
-- `output`: compact human tables and JSON printing.
+- `paths`: home directory and tilde expansion.
+- `output`: compact human tables and formatted JSON printing.
 - `install`: copy the running binary to a local bin directory.
 
-## Monarch API Surface
+## Execution Model
 
-The client uses the API conventions observed in the community
-`hammem/monarchmoney` package:
+The CLI connects to the local bro MCP server on `127.0.0.1:3500`, locates an
+open `https://app.monarch.com/` tab in a Chromium-family browser (Helium or
+Chrome), and executes GraphQL queries directly inside the page context:
 
-```text
-POST https://api.monarch.com/auth/login/
-POST https://api.monarch.com/graphql
-Authorization: Token <token>
-Client-Platform: web
+```javascript
+fetch("https://api.monarch.com/graphql", {
+  method: "POST",
+  credentials: "include",
+  headers: {
+    "accept": "application/json",
+    "content-type": "application/json",
+    "client-platform": "web",
+    "x-csrftoken": decodeURIComponent(document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/)[1]),
+  },
+  body: JSON.stringify(request)
+})
 ```
 
-GraphQL calls use this request shape:
+This model provides:
 
-```json
-{
-  "operationName": "GetTransactionsList",
-  "variables": {},
-  "query": "query GetTransactionsList { ... }"
-}
-```
-
-The CLI prints the `data` object by default for GraphQL operations and can print
-the full response with `mon gql --full`.
-
-## Session Model
-
-Tokens are stored as JSON:
-
-```json
-{
-  "token": "...",
-  "created_at": "2026-04-29T00:00:00Z"
-}
-```
-
-The file defaults to `~/.mon/session.json`, can be overridden with
-`MON_SESSION_FILE`, and is chmodded to `0600` on Unix.
-
-## Rate Limits
-
-Monarch rate-limits repeated password login attempts and may require CAPTCHA.
-`mon` is deliberately conservative:
-
-- saved sessions are reused by `mon auth login` unless `--force` is passed;
-- HTTP redirects are not followed automatically, so API host changes fail
-  clearly instead of mutating POST into GET;
-- HTTP 429 responses are surfaced as explicit rate-limit errors;
-- `CAPTCHA_REQUIRED` stops automated login attempts instead of retrying.
+- **Zero credential persistence**: no passwords or API tokens are saved to disk.
+- **Natural MFA / CAPTCHA bypass**: the user logs in once in the browser; the CLI reuses that live session.
+- **HttpOnly cookie reuse**: browser security boundaries remain respected.
 
 ## Write Safety
 
@@ -85,5 +60,4 @@ Top-level GraphQL errors use a small shared typed representation. Standard
 extension codes identify validation and bad-input failures. Monarch currently
 omits extension codes for some document failures, so HTTP 400 GraphQL envelopes
 from built-in operations are treated as adapter/schema incompatibility. Unknown
-codes remain ambiguous. Both saved-token and browser transports use the same
-parser.
+codes remain ambiguous.
