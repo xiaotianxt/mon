@@ -1,3 +1,8 @@
+---
+name: mon
+description: "Use when Codex needs to access Monarch Money through the local mon CLI: authenticate, inspect accounts, search transactions, run GraphQL operations, or use a logged-in browser session through bro while keeping tokens and cookies private."
+---
+
 # mon
 
 Use this skill when you need to access Monarch Money from the local `mon` CLI.
@@ -6,7 +11,7 @@ Use this skill when you need to access Monarch Money from the local `mon` CLI.
 
 - `mon auth login`: login and save a local token.
 - `mon auth status --online`: verify saved auth.
-- `mon auth status --browser --json`: verify the logged-in Helium/Monarch browser session through OpenBrowserMCP.
+- `mon auth status --browser --json`: verify the logged-in Monarch browser session through bro.
 - `mon accounts --json`: fetch linked accounts.
 - `mon accounts --browser --json`: fetch accounts through an already logged-in Monarch browser tab.
 - `mon transactions --search TEXT --start-date YYYY-MM-DD --end-date YYYY-MM-DD --json`: search transactions.
@@ -18,8 +23,8 @@ Use this skill when you need to access Monarch Money from the local `mon` CLI.
 ## Auth Strategy
 
 - Use the saved token path for durable unattended CLI work: `mon auth status --online`, then `mon ... --json`.
-- If the saved token is expired or password login risks CAPTCHA/rate limits, prefer `--browser` when Helium is already logged in to `https://app.monarch.com/`.
-- Browser mode reads the local OpenBrowserMCP bearer token from `~/openbrowsermcp/settings.json`, connects to `http://127.0.0.1:3500/mcp`, finds a Monarch tab, and runs GraphQL from inside that page with browser cookies/CSRF.
+- If the saved token is expired or password login risks CAPTCHA/rate limits, prefer `--browser` when a bro-connected browser is already logged in to `https://app.monarch.com/`.
+- Browser mode reads the local bro bearer token from `~/.bro/settings.json`, connects to `http://127.0.0.1:3500/mcp`, finds a Monarch tab, and runs GraphQL from inside that page with browser cookies/CSRF.
 - Do not try to print, scrape, or import a Monarch browser token into `~/.mon/session.json`; recent Monarch browser state may not expose a reusable API token.
 - Use `--browser-tab-id TAB_ID` when multiple Monarch tabs are open.
 
@@ -35,6 +40,6 @@ bare `mon` command.
 Do not print `~/.mon/session.json` or Monarch tokens. Prefer JSON command output
 for agent workflows. Avoid repeated password login attempts; prefer the saved
 session and `mon auth status --online`. When using `--browser`, do not print the
-OpenBrowserMCP bearer token, browser cookies, localStorage values, or raw
+bro bearer token, browser cookies, localStorage values, or raw
 transaction details unless the user explicitly asks for them; aggregate first
 for spending summaries.

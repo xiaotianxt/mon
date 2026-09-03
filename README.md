@@ -23,7 +23,7 @@ changes its web app API.
 - `mon transactions`: search transactions by text/date with deterministic output.
 - `mon gql`: run a checked-in or ad-hoc GraphQL document.
 - `--browser`: run data commands through an already logged-in Monarch web app
-  tab via OpenBrowserMCP instead of the saved token.
+  tab via bro instead of the saved token.
 - `mon doctor`: verify local config and optional online connectivity.
 - `mon install`: copy the current binary into `~/.local/bin`.
 
@@ -112,9 +112,10 @@ mon gql --browser --operation GetAccounts --query-file queries/accounts.graphql
 ```
 
 Browser mode does not extract or save a Monarch token. It connects to the local
-OpenBrowserMCP server, finds an existing `https://app.monarch.com/` tab, and
-runs Monarch GraphQL from inside that page with the browser's normal cookie and
-CSRF state. Open Monarch in Helium and log in before using `--browser`.
+bro MCP server, finds an existing `https://app.monarch.com/` tab, and runs
+Monarch GraphQL from inside that page with the browser's normal cookie and CSRF
+state. Open Monarch in a bro-connected browser and log in before using
+`--browser`.
 
 Useful browser options:
 
@@ -155,10 +156,13 @@ mon gql \
 ## Environment Variables
 
 - `MON_SESSION_FILE`: session file path. Defaults to `~/.mon/session.json`.
-- `OPENBROWSERMCP_MCP_URL`: OpenBrowserMCP MCP endpoint. Defaults to
+- `BRO_MCP_URL`: bro MCP endpoint. Defaults to
   `http://127.0.0.1:3500/mcp`.
-- `OPENBROWSERMCP_SETTINGS`: OpenBrowserMCP settings file. Defaults to
-  `~/openbrowsermcp/settings.json`.
+- `BRO_SETTINGS`: bro settings file. Defaults to `~/.bro/settings.json`.
+
+The former `OPENBROWSERMCP_MCP_URL`, `OPENBROWSERMCP_SETTINGS`,
+`--openbrowser-mcp-url`, and `--openbrowser-settings` names remain accepted as
+compatibility aliases.
 
 ## AI-Native Contract
 
@@ -169,7 +173,7 @@ mon is designed for agent use:
   `mon auth login --no-save`;
 - commands fail loudly with non-zero exits and contextual errors;
 - password login is session-aware to reduce rate-limit pressure;
-- browser mode reuses an already logged-in Helium session without copying
+- browser mode reuses an already logged-in browser session without copying
   cookies or Monarch tokens into `~/.mon/session.json`;
 - HTTP 429 and CAPTCHA_REQUIRED responses are surfaced as first-class errors,
   not retried blindly.

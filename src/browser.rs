@@ -32,12 +32,12 @@ pub struct BrowserOptions {
 }
 
 pub struct BrowserMonarchClient {
-    mcp: OpenBrowserMcp,
+    mcp: BroMcp,
     tab_id: u64,
     browser_id: Option<String>,
 }
 
-struct OpenBrowserMcp {
+struct BroMcp {
     http: Client,
     endpoint: String,
     token: String,
@@ -45,7 +45,7 @@ struct OpenBrowserMcp {
 }
 
 #[derive(Debug, Deserialize)]
-struct OpenBrowserSettings {
+struct BroSettings {
     token: Option<String>,
 }
 
@@ -64,7 +64,7 @@ struct BrowserTab {
 
 impl BrowserMonarchClient {
     pub fn connect(options: BrowserOptions) -> Result<Self> {
-        let mcp = OpenBrowserMcp::connect(options.mcp_url, options.settings_file)?;
+        let mcp = BroMcp::connect(options.mcp_url, options.settings_file)?;
 
         let selection = match options.tab_id {
             Some(tab_id) => BrowserTabSelection {
@@ -273,16 +273,17 @@ impl BrowserMonarchClient {
     }
 }
 
-impl OpenBrowserMcp {
+impl BroMcp {
     fn connect(mcp_url: Option<String>, settings_file: Option<PathBuf>) -> Result<Self> {
         let endpoint = mcp_url
+            .or_else(|| std::env::var("BRO_MCP_URL").ok())
             .or_else(|| std::env::var("OPENBROWSERMCP_MCP_URL").ok())
             .unwrap_or_else(|| DEFAULT_MCP_URL.to_owned());
-        let token = read_openbrowser_token(settings_file)?;
+        let token = read_bro_token(settings_file)?;
         let http = Client::builder()
             .timeout(Duration::from_secs(30))
             .build()
-            .context("failed to build OpenBrowserMCP HTTP client")?;
+            .context("failed to build bro HTTP client")?;
 
         let mut mcp = Self {
             http,
@@ -306,7 +307,7 @@ impl OpenBrowserMcp {
         )?;
         mcp.session_id = init
             .session_id
-            .context("OpenBrowserMCP did not return an MCP session id")?;
+            .context("bro did not return an MCP session id")?;
         Ok(mcp)
     }
 
@@ -324,12 +325,10 @@ impl OpenBrowserMcp {
             .body;
 
         if let Some(error) = body.get("error") {
-            anyhow::bail!("OpenBrowserMCP {name} returned RPC error: {error}");
+            anyhow::bail!("bro {name} returned RPC error: {error}");
         }
 
-        let result = body
-            .get("result")
-            .context("OpenBrowserMCP response missing result")?;
+        let result = body.get("result").context("bro response missing result")?;
         let text = result
             .get("content")
             .and_then(Value::as_array)
@@ -342,10 +341,10 @@ impl OpenBrowserMcp {
                     }
                 })
             })
-            .context("OpenBrowserMCP response missing text content")?;
+            .context("bro response missing text content")?;
 
         if result["isError"].as_bool().unwrap_or(false) {
-            anyhow::bail!("OpenBrowserMCP {name} failed: {text}");
+            anyhow::bail!("bro {name} failed: {text}");
         }
 
         Ok(text)
@@ -367,7 +366,7 @@ impl OpenBrowserMcp {
         headers.insert(
             AUTHORIZATION,
             HeaderValue::from_str(&format!("Bearer {}", self.token))
-                .context("invalid OpenBrowserMCP token header")?,
+                .context("invalid bro token header")?,
         );
         if let Some(session_id) = session_id {
             headers.insert(
@@ -387,7 +386,7 @@ impl OpenBrowserMcp {
                 "params": params,
             }))
             .send()
-            .with_context(|| format!("failed to call OpenBrowserMCP {method}"))?;
+            .with_context(|| format!("failed to call bro {method}"))?;
 
         let session_id = response
             .headers()
@@ -397,16 +396,16 @@ impl OpenBrowserMcp {
         let status = response.status();
         let text = response
             .text()
-            .with_context(|| format!("failed to read OpenBrowserMCP {method} response"))?;
+            .with_context(|| format!("failed to read bro {method} response"))?;
 
         if !status.is_success() {
-            anyhow::bail!("OpenBrowserMCP {method} failed with HTTP {status}: {text}");
+            anyhow::bail!("bro {method} failed with HTTP {status}: {text}");
         }
 
         Ok(RpcResponse {
             session_id,
             body: parse_sse_or_json(&text)
-                .with_context(|| format!("failed to parse OpenBrowserMCP {method} response"))?,
+                .with_context(|| format!("failed to parse bro {method} response"))?,
         })
     }
 }
@@ -417,7 +416,7 @@ struct BrowserTabSelection {
 }
 
 fn find_monarch_tab(
-    mcp: &OpenBrowserMcp,
+    mcp: &BroMcp,
     requested_browser_id: Option<String>,
 ) -> Result<BrowserTabSelection> {
     let mut args = json!({ "all": true });
@@ -428,7 +427,7 @@ fn find_monarch_tab(
     let text = mcp.call_tool_text("tabs_context", args)?;
     let parsed_browser_id = parse_browser_id(&text);
     let tab = parse_tabs_context(&text).with_context(|| {
-        "no Monarch browser tab found; open https://app.monarch.com/dashboard in Helium and retry with --browser"
+        "no Monarch browser tab found; open https://app.monarch.com/dashboard in a bro-connected browser and retry with --browser"
     })?;
 
     Ok(BrowserTabSelection {
@@ -437,27 +436,29 @@ fn find_monarch_tab(
     })
 }
 
-fn read_openbrowser_token(settings_file: Option<PathBuf>) -> Result<String> {
+fn read_bro_token(settings_file: Option<PathBuf>) -> Result<String> {
     let path = match settings_file {
         Some(path) => paths::expand_tilde(path)?,
         None => {
-            if let Some(path) = std::env::var_os("OPENBROWSERMCP_SETTINGS") {
+            if let Some(path) = std::env::var_os("BRO_SETTINGS") {
+                paths::expand_tilde(PathBuf::from(path))?
+            } else if let Some(path) = std::env::var_os("OPENBROWSERMCP_SETTINGS") {
                 paths::expand_tilde(PathBuf::from(path))?
             } else {
-                paths::home_dir()?.join("openbrowsermcp/settings.json")
+                paths::home_dir()?.join(".bro/settings.json")
             }
         }
     };
 
     let bytes =
         std::fs::read(&path).with_context(|| format!("failed to read {}", path.display()))?;
-    let settings: OpenBrowserSettings = serde_json::from_slice(&bytes)
+    let settings: BroSettings = serde_json::from_slice(&bytes)
         .with_context(|| format!("failed to parse {}", path.display()))?;
     let token = settings
         .token
-        .context("OpenBrowserMCP settings file does not contain a token")?;
+        .context("bro settings file does not contain a token")?;
     if token.trim().is_empty() {
-        anyhow::bail!("OpenBrowserMCP token is empty");
+        anyhow::bail!("bro token is empty");
     }
     Ok(token)
 }
@@ -507,7 +508,8 @@ fn is_monarch_url(url: &str) -> bool {
 fn parse_sse_or_json(text: &str) -> Result<Value> {
     for line in text.lines() {
         if let Some(data) = line.strip_prefix("data: ") {
-            if data.trim() == "[DONE]" {
+            let data = data.trim();
+            if data.is_empty() || data == "[DONE]" {
                 continue;
             }
             return serde_json::from_str(data).context("failed to parse SSE data line");
@@ -574,6 +576,14 @@ Tabs (2):
     fn parses_sse_response_data() {
         let parsed =
             parse_sse_or_json("event: message\ndata: {\"result\":{\"ok\":true}}\n\n").unwrap();
+        assert_eq!(parsed["result"]["ok"].as_bool(), Some(true));
+    }
+
+    #[test]
+    fn skips_sse_priming_event() {
+        let parsed =
+            parse_sse_or_json("data: \nid: 0\nretry: 3000\n\ndata: {\"result\":{\"ok\":true}}\n\n")
+                .unwrap();
         assert_eq!(parsed["result"]["ok"].as_bool(), Some(true));
     }
 }

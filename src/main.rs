@@ -92,7 +92,7 @@ fn client_from_session(path: Option<std::path::PathBuf>) -> Result<client::Monar
     let path = paths::session_file(path)?;
     let stored = session::load(&path).with_context(|| {
         format!(
-            "no usable session at {}; run `mon auth login`, or use `--browser` when Monarch is already open in Helium",
+            "no usable session at {}; run `mon auth login`, or use `--browser` when Monarch is already open in a bro-connected browser",
             path.display()
         )
     })?;
@@ -103,8 +103,8 @@ fn browser_options(args: &BrowserArgs) -> browser::BrowserOptions {
     browser::BrowserOptions {
         tab_id: args.browser_tab_id,
         browser_id: args.browser_id.clone(),
-        mcp_url: args.openbrowser_mcp_url.clone(),
-        settings_file: args.openbrowser_settings.clone(),
+        mcp_url: args.bro_mcp_url.clone(),
+        settings_file: args.bro_settings.clone(),
     }
 }
 

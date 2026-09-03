@@ -215,7 +215,7 @@ pub struct InstallArgs {
 
 #[derive(Debug, Clone, Default, Args)]
 pub struct BrowserArgs {
-    /// Use a logged-in Monarch web app tab through OpenBrowserMCP instead of the saved token.
+    /// Use a logged-in Monarch web app tab through bro instead of the saved token.
     #[arg(long)]
     pub browser: bool,
 
@@ -223,17 +223,25 @@ pub struct BrowserArgs {
     #[arg(long, value_name = "TAB_ID")]
     pub browser_tab_id: Option<u64>,
 
-    /// Explicit OpenBrowserMCP browser id to use with --browser.
+    /// Explicit bro browser id to use with --browser.
     #[arg(long, value_name = "BROWSER_ID")]
     pub browser_id: Option<String>,
 
-    /// OpenBrowserMCP MCP endpoint. Defaults to OPENBROWSERMCP_MCP_URL or http://127.0.0.1:3500/mcp.
-    #[arg(long, value_name = "URL")]
-    pub openbrowser_mcp_url: Option<String>,
+    /// bro MCP endpoint. Defaults to BRO_MCP_URL or http://127.0.0.1:3500/mcp.
+    #[arg(
+        long = "bro-mcp-url",
+        alias = "openbrowser-mcp-url",
+        value_name = "URL"
+    )]
+    pub bro_mcp_url: Option<String>,
 
-    /// OpenBrowserMCP settings file. Defaults to OPENBROWSERMCP_SETTINGS or ~/openbrowsermcp/settings.json.
-    #[arg(long, value_name = "PATH")]
-    pub openbrowser_settings: Option<PathBuf>,
+    /// bro settings file. Defaults to BRO_SETTINGS or ~/.bro/settings.json.
+    #[arg(
+        long = "bro-settings",
+        alias = "openbrowser-settings",
+        value_name = "PATH"
+    )]
+    pub bro_settings: Option<PathBuf>,
 }
 
 impl BrowserArgs {
@@ -241,7 +249,37 @@ impl BrowserArgs {
         self.browser
             || self.browser_tab_id.is_some()
             || self.browser_id.is_some()
-            || self.openbrowser_mcp_url.is_some()
-            || self.openbrowser_settings.is_some()
+            || self.bro_mcp_url.is_some()
+            || self.bro_settings.is_some()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accepts_legacy_openbrowser_flag_aliases() {
+        let cli = Cli::try_parse_from([
+            "mon",
+            "accounts",
+            "--openbrowser-mcp-url",
+            "http://127.0.0.1:3500/mcp",
+            "--openbrowser-settings",
+            "/tmp/settings.json",
+        ])
+        .unwrap();
+
+        let Command::Accounts(args) = cli.command else {
+            panic!("expected accounts command");
+        };
+        assert_eq!(
+            args.browser.bro_mcp_url.as_deref(),
+            Some("http://127.0.0.1:3500/mcp")
+        );
+        assert_eq!(
+            args.browser.bro_settings.as_deref(),
+            Some(std::path::Path::new("/tmp/settings.json"))
+        );
     }
 }
