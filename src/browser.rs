@@ -35,6 +35,7 @@ pub struct BrowserMonarchClient {
     mcp: BroMcp,
     tab_id: u64,
     browser_id: Option<String>,
+    owns_tab: bool,
 }
 
 struct BroMcp {
@@ -70,6 +71,7 @@ impl BrowserMonarchClient {
             Some(tab_id) => BrowserTabSelection {
                 tab_id,
                 browser_id: options.browser_id,
+                owned: false,
             },
             None => find_monarch_tab(&mcp, options.browser_id.clone())?,
         };
@@ -78,7 +80,26 @@ impl BrowserMonarchClient {
             mcp,
             tab_id: selection.tab_id,
             browser_id: selection.browser_id,
+            owns_tab: selection.owned,
         })
+    }
+
+    /// Finish cleanup on both success and error, without changing a mutation's outcome.
+    pub fn run<T>(self, operation: impl FnOnce(&Self) -> Result<T>) -> Result<T> {
+        let result = operation(&self);
+        if self.owns_tab {
+            let mut args = json!({ "tabId": self.tab_id });
+            if let Some(browser_id) = &self.browser_id {
+                args["browserId"] = json!(browser_id);
+            }
+            if let Err(error) = self.mcp.call_tool_text("tabs_close", args) {
+                eprintln!(
+                    "mon: warning: could not close owned tab {}: {error:#}",
+                    self.tab_id
+                );
+            }
+        }
+        result
     }
 
     pub fn tab_id(&self) -> u64 {
@@ -414,6 +435,7 @@ impl BroMcp {
 struct BrowserTabSelection {
     tab_id: u64,
     browser_id: Option<String>,
+    owned: bool,
 }
 
 fn find_monarch_tab(
@@ -431,10 +453,11 @@ fn find_monarch_tab(
         return Ok(BrowserTabSelection {
             tab_id: tab.id,
             browser_id: requested_browser_id.or(parsed_browser_id),
+            owned: false,
         });
     }
 
-    // If no Monarch tab exists in the current window, open one in the background.
+    // If no Monarch tab exists, open an owned background tab for this command.
     let target_browser_id = requested_browser_id.or(parsed_browser_id);
     let mut create_args = json!({
         "url": format!("{MONARCH_APP_PREFIX}dashboard"),
@@ -450,6 +473,7 @@ fn find_monarch_tab(
             return Ok(BrowserTabSelection {
                 tab_id,
                 browser_id: target_browser_id,
+                owned: true,
             });
         }
     }
@@ -557,6 +581,103 @@ fn request_nonce() -> Result<u128> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn lifecycle_client(endpoint: String, owned: bool) -> BrowserMonarchClient {
+        BrowserMonarchClient {
+            mcp: BroMcp {
+                http: Client::builder()
+                    .timeout(Duration::from_secs(2))
+                    .build()
+                    .unwrap(),
+                endpoint,
+                token: "test-only".to_owned(),
+                session_id: "test-session".to_owned(),
+            },
+            tab_id: 42,
+            browser_id: Some("test-browser".to_owned()),
+            owns_tab: owned,
+        }
+    }
+
+    #[test]
+    fn closes_owned_tab_after_success_and_operation_error() {
+        use std::io::{BufRead, BufReader, Read, Write};
+        use std::net::TcpListener;
+
+        for fail_operation in [false, true] {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let endpoint = format!("http://{}", listener.local_addr().unwrap());
+            let server = std::thread::spawn(move || {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(2)))
+                    .unwrap();
+                let mut reader = BufReader::new(&mut stream);
+                let mut length = 0;
+                loop {
+                    let mut line = String::new();
+                    reader.read_line(&mut line).unwrap();
+                    if line == "\r\n" {
+                        break;
+                    }
+                    if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                        length = value.trim().parse::<usize>().unwrap();
+                    }
+                }
+                let mut body = vec![0; length];
+                reader.read_exact(&mut body).unwrap();
+                let request: Value = serde_json::from_slice(&body).unwrap();
+                let response = r#"{"result":{"content":[{"type":"text","text":"Closed tab"}]}}"#;
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    response.len(),
+                    response
+                )
+                .unwrap();
+                request
+            });
+            let result = lifecycle_client(endpoint, true).run(|_| {
+                if fail_operation {
+                    anyhow::bail!("original operation error");
+                }
+                Ok(7)
+            });
+            let request = server.join().unwrap();
+            assert_eq!(request["params"]["name"], "tabs_close");
+            assert_eq!(
+                request["params"]["arguments"],
+                json!({"tabId":42,"browserId":"test-browser"})
+            );
+            if fail_operation {
+                assert_eq!(result.unwrap_err().to_string(), "original operation error");
+            } else {
+                assert_eq!(result.unwrap(), 7);
+            }
+        }
+    }
+
+    #[test]
+    fn borrowed_tabs_are_not_closed() {
+        use std::net::TcpListener;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        assert_eq!(lifecycle_client(endpoint, false).run(|_| Ok(7)).unwrap(), 7);
+        assert_eq!(
+            listener.accept().unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
+    }
+
+    #[test]
+    fn cleanup_failure_does_not_change_successful_operation() {
+        use std::net::TcpListener;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        drop(listener);
+        assert_eq!(lifecycle_client(endpoint, true).run(|_| Ok(7)).unwrap(), 7);
+    }
 
     #[test]
     fn parses_created_tab_id() {

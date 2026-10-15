@@ -110,13 +110,15 @@ fn graphql(
     full: bool,
 ) -> Result<serde_json::Value> {
     let client = browser_client(browser_args)?;
-    client.graphql_full_or_data(operation, query, variables, full)
+    client.run(|client| client.graphql_full_or_data(operation, query, variables, full))
 }
 
 fn update_transaction(args: cli::TransactionUpdateArgs) -> Result<()> {
     let client = browser_client(&args.browser)?;
-    let execution = transaction_update::execute(&args, |operation, query, variables| {
-        client.graphql(operation, query, variables)
+    let execution = client.run(|client| {
+        transaction_update::execute(&args, |operation, query, variables| {
+            client.graphql(operation, query, variables)
+        })
     })?;
 
     output::print_transaction_update(&execution.outcome, args.json)?;
@@ -129,7 +131,13 @@ fn update_transaction(args: cli::TransactionUpdateArgs) -> Result<()> {
 }
 
 fn auth_status(args: cli::StatusArgs) -> Result<()> {
-    let client = browser_client(&args.browser)?;
+    browser_client(&args.browser)?.run(|client| auth_status_with_client(&args, client))
+}
+
+fn auth_status_with_client(
+    args: &cli::StatusArgs,
+    client: &browser::BrowserMonarchClient,
+) -> Result<()> {
     let data = client.graphql(
         "GetSubscriptionDetails",
         queries::SUBSCRIPTION,
@@ -157,7 +165,13 @@ fn auth_status(args: cli::StatusArgs) -> Result<()> {
 }
 
 fn doctor(args: cli::DoctorArgs) -> Result<()> {
-    let client = browser_client(&args.browser)?;
+    browser_client(&args.browser)?.run(|client| doctor_with_client(&args, client))
+}
+
+fn doctor_with_client(
+    args: &cli::DoctorArgs,
+    client: &browser::BrowserMonarchClient,
+) -> Result<()> {
     let data = client.graphql(
         "GetSubscriptionDetails",
         queries::SUBSCRIPTION,

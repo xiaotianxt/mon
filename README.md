@@ -70,7 +70,11 @@ make install-local
 mon connects to the local `bro` MCP server (`http://127.0.0.1:3500/mcp`),
 locates an open Monarch tab (`https://app.monarch.com/`), and executes GraphQL
 queries and mutations inside that page using the browser's existing credentials
-and CSRF tokens.
+and CSRF tokens. Existing tabs (including explicitly selected tabs) are never
+closed. If no Monarch tab exists, mon opens a background tab and closes it when
+the command finishes, including on errors. Cleanup failures are reported on
+stderr without changing the operation's outcome; do not retry a successful
+mutation just because tab cleanup failed.
 
 No API tokens or credentials are saved to `~/.mon`. To use mon:
 
