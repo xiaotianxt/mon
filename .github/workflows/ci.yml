@@ -6,28 +6,27 @@ on:
   pull_request:
     branches: [main]
 
-env:
-  CARGO_TERM_COLOR: always
-
 jobs:
   build:
     runs-on: macos-latest
 
     steps:
       - uses: actions/checkout@v7
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
 
       - name: Verify arm64 runner
         run: test "$(uname -m)" = "arm64"
 
-      - name: Format
-        run: cargo fmt --all -- --check
+      - name: Format and vet
+        run: make check
 
       - name: Build
-        run: cargo build --release
+        run: make build
 
       - name: Test
-        run: cargo test
+        run: make test
 
       - name: Verify CLI
-        run: cargo run --release -- --help
+        run: bin/mon --help

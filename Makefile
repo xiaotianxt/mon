@@ -1,29 +1,31 @@
 .PHONY: build check fmt test install-local install release clean
 
 build:
-	cargo build --release
+	go build -trimpath -ldflags "-s -w" -o bin/mon .
 
 check:
-	cargo check
+	test -z "$$(gofmt -l .)"
+	go vet ./...
 
 fmt:
-	cargo fmt --all
+	gofmt -w .
 
 test:
-	cargo test
+	go test -race ./...
 
 install-local: build
 	mkdir -p ~/.local/bin
-	cp target/release/mon ~/.local/bin/
+	cp bin/mon ~/.local/bin/
 	@echo "installed: ~/.local/bin/mon"
 
 install: build
-	sudo cp target/release/mon /usr/local/bin/
+	sudo cp bin/mon /usr/local/bin/
 	@echo "installed: /usr/local/bin/mon"
 
 release:
 	scripts/release.sh
 
 clean:
-	cargo clean
+	rm -rf bin
+	go clean -testcache
 	rm -f ~/.local/bin/mon 2>/dev/null || true

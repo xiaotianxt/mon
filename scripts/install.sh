@@ -3,8 +3,8 @@ set -euo pipefail
 
 echo "==> mon install"
 
-if ! command -v cargo >/dev/null 2>&1; then
-  echo "error: Rust toolchain not found. Install from https://rustup.rs/" >&2
+if ! command -v go >/dev/null 2>&1; then
+  echo "error: Go toolchain not found. Install from https://go.dev/dl/" >&2
   exit 1
 fi
 
@@ -15,10 +15,10 @@ bin_dir="${BIN_DIR:-$HOME/.local/bin}"
 mkdir -p "$bin_dir"
 
 echo "==> building release binary"
-cargo build --release
+make build
 
 echo "==> installing mon to $bin_dir"
-cp target/release/mon "$bin_dir/"
+cp bin/mon "$bin_dir/"
 
 echo ""
 echo "installed: $bin_dir/mon"

@@ -1,20 +1,21 @@
 # Architecture
 
-mon is a thin, browser-native Rust CLI for Monarch Money. Rather than storing
+mon is a thin, browser-native Go CLI for Monarch Money. Rather than storing
 ephemeral API tokens or passwords that trigger CAPTCHAs, it delegates network
 transport and authentication directly to an active Monarch Money browser tab via
 [bro](https://github.com/xiaotianxt/bro).
 
-## Modules
+## Packages
 
-- `cli`: typed clap commands and arguments.
-- `browser`: bro MCP connection, Monarch tab discovery, and in-page GraphQL execution.
-- `graphql`: shared typed parsing and classification of top-level GraphQL errors.
-- `queries`: built-in GraphQL documents and variable builders.
-- `transaction_update`: exact category resolution, single-transaction mutation policy, payload validation, and read-back outcome classification.
-- `paths`: home directory and tilde expansion.
-- `output`: compact human tables and formatted JSON printing.
-- `install`: copy the running binary to a local bin directory.
+- `main.go`: entry point; embeds `VERSION`, the single source of the release version.
+- `internal/cli`: cobra command tree that parses into typed commands, plus their handlers and `install`.
+- `internal/browser`: bro MCP client, Monarch tab discovery and readiness, and in-page GraphQL execution.
+- `internal/graphql`: typed parsing and classification of top-level GraphQL errors.
+- `internal/queries`: built-in GraphQL documents and variable builders.
+- `internal/txupdate`: exact category resolution, single-transaction mutation policy, payload validation, and read-back outcome classification.
+- `internal/output`: compact human tables and formatted JSON printing.
+- `internal/jsonx`: dynamic JSON helpers that preserve number precision.
+- `internal/paths`: home directory and tilde expansion.
 
 ## Execution Model
 
@@ -42,6 +43,15 @@ This model provides:
 - **Natural MFA / CAPTCHA bypass**: the user logs in once in the browser; the CLI reuses that live session.
 - **HttpOnly cookie reuse**: browser security boundaries remain respected.
 
+Each GraphQL request is one bro `javascript_tool` call with `awaitPromise`, so a
+query costs a single MCP round trip. The in-page fetch aborts after 25 seconds,
+before bro's 30-second tool-call timeout, so slow requests fail with context.
+A tab that mon opens is polled until it has loaded a Monarch document before
+any request runs, and is closed when the command finishes.
+
+JSON output keeps Monarch numbers verbatim and emits object keys in sorted
+order.
+
 ## Write Safety
 
 Domain-specific reasoning remains outside this repository and consumes mon's
@@ -50,7 +60,8 @@ domain mutation. It accepts one explicit transaction id and one exact category
 name or id; it never searches, writes batches, creates rules, retries a
 mutation, or falls back to another GraphQL document.
 
-The command reads the transaction before writing and verifies it afterward.
+The command reads the transaction and the category list concurrently before
+writing and verifies the transaction afterward.
 Only an exact target-category read-back is success. Definitive payload or
 schema rejection may return `failed`; ambiguous transport failures, malformed
 mutation responses, conflicting observations, and failed verification return

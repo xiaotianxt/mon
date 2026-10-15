@@ -54,7 +54,7 @@ brew install --HEAD xiaotianxt/tap/mon
 
 ### From Source
 
-Requires a Rust toolchain.
+Requires Go 1.25 or newer.
 
 ```bash
 git clone https://github.com/xiaotianxt/mon.git
@@ -70,9 +70,10 @@ make install-local
 mon connects to the local `bro` MCP server (`http://127.0.0.1:3500/mcp`),
 locates an open Monarch tab (`https://app.monarch.com/`), and executes GraphQL
 queries and mutations inside that page using the browser's existing credentials
-and CSRF tokens. Existing tabs (including explicitly selected tabs) are never
-closed. If no Monarch tab exists, mon opens a background tab and closes it when
-the command finishes, including on errors. Cleanup failures are reported on
+and CSRF tokens. Each GraphQL request is a single awaited bro `javascript_tool`
+call, so there is no result polling. Existing tabs (including explicitly selected tabs) are never
+closed. If no Monarch tab exists, mon opens a background tab, waits until it has
+loaded a Monarch page, and closes it when the command finishes, including on errors. Cleanup failures are reported on
 stderr without changing the operation's outcome; do not retry a successful
 mutation just because tab cleanup failed.
 
@@ -175,7 +176,7 @@ mon is designed for agent use:
 ```bash
 make fmt
 make check
-cargo test
+make test
 ```
 
 ## Release
@@ -186,6 +187,6 @@ Maintainers can release with:
 scripts/release.sh
 ```
 
-The script runs tests, pushes a tag, waits for GitHub Actions to publish the
+The script bumps `VERSION` when needed, runs tests, pushes a tag, waits for GitHub Actions to publish the
 `darwin-arm64` release artifact, updates `Formula/mon.rb` in
 `xiaotianxt/homebrew-tap`, and verifies the Homebrew install.

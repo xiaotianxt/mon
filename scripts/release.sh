@@ -24,8 +24,8 @@ Options:
   --bump LEVEL         Bump level when current version is already tagged on
                        another commit. One of: patch, minor, major.
                        Default: patch.
-  --version VERSION    Release this exact x.y.z version, updating Cargo files.
-  --skip-tests         Do not run cargo test before tagging.
+  --version VERSION    Release this exact x.y.z version, updating VERSION.
+  --skip-tests         Do not run go test before tagging.
   --skip-tap           Do not update the Homebrew tap formula.
   --skip-brew-verify   Do not run brew update/upgrade/test after tap update.
   --no-watch           Push the tag but do not wait for the release workflow.
@@ -53,7 +53,7 @@ need_cmd() {
 }
 
 package_version() {
-  sed -nE 's/^version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' Cargo.toml | head -1
+  tr -d '[:space:]' < VERSION
 }
 
 local_tag_commit() {
@@ -84,15 +84,26 @@ tag_commit() {
   printf '%s' "$sha"
 }
 
-cargo_release_version() {
+# bump_version writes and commits VERSION; the argument is patch, minor, major, or x.y.z.
+bump_version() {
   local level_or_version="$1"
+  local next major minor patch
 
-  cargo release "$level_or_version" \
-    --execute \
-    --no-confirm \
-    --no-publish \
-    --no-tag \
-    --no-push
+  case "$level_or_version" in
+    patch|minor|major)
+      IFS=. read -r major minor patch <<<"$(package_version)"
+      case "$level_or_version" in
+        patch) next="${major}.${minor}.$((patch + 1))" ;;
+        minor) next="${major}.$((minor + 1)).0" ;;
+        major) next="$((major + 1)).0.0" ;;
+      esac
+      ;;
+    *) next="$level_or_version" ;;
+  esac
+
+  printf '%s\n' "$next" > VERSION
+  git add VERSION
+  git commit -m "chore: bump mon version to ${next}"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -136,8 +147,7 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
-need_cmd cargo
-need_cmd cargo-release
+need_cmd go
 need_cmd git
 need_cmd gh
 if [[ "$UPDATE_TAP" -eq 1 || "$BREW_VERIFY" -eq 1 ]]; then
@@ -175,26 +185,26 @@ if [[ "$HEAD_SHA" != "$ORIGIN_MAIN_SHA" ]]; then
 fi
 
 CURRENT_VERSION="$(package_version)"
-[[ -n "$CURRENT_VERSION" ]] || die "Cargo.toml version not found"
+[[ "$CURRENT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "VERSION must contain x.y.z"
 CURRENT_TAG="v${CURRENT_VERSION}"
 CURRENT_TAG_SHA="$(tag_commit "$CURRENT_TAG")"
 
 if [[ -n "$VERSION_OVERRIDE" && "$VERSION_OVERRIDE" != "$CURRENT_VERSION" ]]; then
   TAG_SHA="$(tag_commit "v${VERSION_OVERRIDE}")"
   [[ -z "$TAG_SHA" ]] || die "tag v${VERSION_OVERRIDE} already exists at ${TAG_SHA}; choose a different version"
-  log "bumping Cargo version ${CURRENT_VERSION} -> ${VERSION_OVERRIDE} with cargo-release"
-  cargo_release_version "$VERSION_OVERRIDE"
+  log "bumping version ${CURRENT_VERSION} -> ${VERSION_OVERRIDE}"
+  bump_version "$VERSION_OVERRIDE"
 elif [[ -n "$CURRENT_TAG_SHA" && "$CURRENT_TAG_SHA" != "$HEAD_SHA" ]]; then
-  log "current version ${CURRENT_VERSION} is already tagged; bumping ${BUMP_KIND} with cargo-release"
-  cargo_release_version "$BUMP_KIND"
+  log "current version ${CURRENT_VERSION} is already tagged; bumping ${BUMP_KIND}"
+  bump_version "$BUMP_KIND"
 else
-  log "using Cargo version ${CURRENT_VERSION}"
+  log "using version ${CURRENT_VERSION}"
 fi
 
-[[ -z "$(git status --porcelain -- Cargo.toml Cargo.lock)" ]] || die "cargo-release left uncommitted Cargo version changes"
+[[ -z "$(git status --porcelain -- VERSION)" ]] || die "version bump left uncommitted VERSION changes"
 
 VERSION="$(package_version)"
-[[ -n "$VERSION" ]] || die "Cargo.toml version not found"
+[[ -n "$VERSION" ]] || die "VERSION is empty"
 TAG="v${VERSION}"
 TAG_SHA="$(tag_commit "$TAG")"
 HEAD_SHA="$(git rev-parse HEAD)"
@@ -203,8 +213,8 @@ if [[ -n "$TAG_SHA" && "$TAG_SHA" != "$HEAD_SHA" ]]; then
 fi
 
 if [[ "$RUN_TESTS" -eq 1 ]]; then
-  log "running cargo test"
-  cargo test
+  log "running go test"
+  go test -race ./...
 fi
 
 if [[ "$HEAD_SHA" != "$(git rev-parse origin/main)" ]]; then
@@ -291,12 +301,12 @@ class Mon < Formula
 
   head do
     url "https://github.com/${REPO_SLUG}.git", branch: "main"
-    depends_on "rust" => :build
+    depends_on "go" => :build
   end
 
   def install
     if build.head?
-      system "cargo", "install", "--bin", "mon", "--root", prefix, "."
+      system "go", "build", *std_go_args(ldflags: "-s -w"), "."
     else
       bin.install "mon"
     end
