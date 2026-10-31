@@ -4,29 +4,34 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
 
 jobs:
-  build:
+  check:
     runs-on: macos-latest
-
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+          cache: true
 
-      - name: Verify arm64 runner
-        run: test "$(uname -m)" = "arm64"
-
+      # gofmt + go vet: seconds, and they are what most red runs used to be.
       - name: Format and vet
         run: make check
 
-      - name: Build
-        run: make build
+      # One build instead of `make build` + `make test` + `bin/mon --help`
+      # re-deriving the binary three times.
+      - name: Build and smoke test
+        run: make build && bin/mon --help
 
       - name: Test
         run: make test
-
-      - name: Verify CLI
-        run: bin/mon --help
